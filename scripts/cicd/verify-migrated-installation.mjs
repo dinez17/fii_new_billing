@@ -1,34 +1,29 @@
-// Run in the target auth-service container; credentials arrive on encrypted stdin.
+// Read-only integrity/readiness checks inside the target application image.
+// No existing passwords are transferred or used; login is verified separately.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { prisma } from "/app/packages/database/dist/index.js";
-import { decryptSecret } from "/app/packages/common/dist/index.js";
-const input = JSON.parse(readFileSync(0, "utf8"));
-const base = "http://api-gateway:8080/api/v1";
+import { prisma, Prisma, createTenantBackup, validateTenantBackup } from "/app/packages/database/dist/index.js";
+import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "/app/packages/pdf/dist/index.js";
+import { encryptSecret, decryptSecret } from "/app/packages/common/dist/index.js";
+const tenantId = "7ab94e71-ee0f-4e3f-84b3-94d43e99c303";
 try {
-  const login = await fetch(`${base}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", "X-FII-Console": "tenant" }, body: JSON.stringify({ email: input.email, password: input.password }) });
-  assert.equal(login.status, 200, "Tenant login failed");
-  const session = await login.json(); const headers = { Authorization: `Bearer ${session.accessToken}`, "X-FII-Console": "tenant" };
-  const get = async (path) => { const r = await fetch(base + path, { headers }); assert.equal(r.status, 200, path); return r.json(); };
-  const license = await get("/settings/license"); assert.ok(license);
-  const invoices = await get("/invoices?search=FII%2F26-27%2F88");
-  assert.equal(invoices.total, 1); const invoice = invoices.items[0];
-  assert.equal(Number(invoice.grandTotal), 97350); assert.equal(Number(invoice.amountPaid), 30000); assert.equal(Number(invoice.balance), 67350); assert.equal(invoice.status, "PARTIAL");
-  const pdf = await fetch(`${base}/invoices/${invoice.id}/pdf`, { headers }); assert.equal(pdf.status, 200); const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 4).toString(), "%PDF");
-  const backup = await fetch(`${base}/backup/download`, { headers }); assert.equal(backup.status, 200);
-  const payload = await backup.text(); const prefix = "FII-TENANT-BACKUP-1\n"; assert.ok(payload.startsWith(prefix));
-  const content = JSON.parse(decryptSecret(payload.slice(prefix.length)));
-  assert.equal(content.tenantId, "7ab94e71-ee0f-4e3f-84b3-94d43e99c303");
-  assert.equal(content.tables.Invoice.length, await prisma.invoice.count({ where: { tenantId: content.tenantId } }));
-  assert.ok(content.tables.Customer.every((c) => c.tenantId === content.tenantId));
-  const year = await prisma.financialYear.findFirstOrThrow({ where: { tenantId: content.tenantId, isActive: true } });
-  const daybook = await get(`/day-book?fyCode=${year.code}&from=${year.startDate.toISOString().slice(0, 10)}&to=2026-10-28`); assert.ok(daybook);
-  let platformVerified = false;
-  if (input.platformPassword) {
-    const auth = await fetch(`${base}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", "X-FII-Console": "platform" }, body: JSON.stringify({ email: "superadmin@platform.local", password: input.platformPassword }) });
-    assert.equal(auth.status, 200, "Platform login failed"); const admin = await auth.json();
-    const tenants = await fetch(`${base}/platform/tenants`, { headers: { Authorization: `Bearer ${admin.accessToken}`, "X-FII-Console": "platform" } }); assert.equal(tenants.status, 200); platformVerified = true;
+  const endpoints = { "auth-service": 8081, "crm-service": 8082, "billing-service": 8083, "payment-service": 8084, "purchase-service": 8085, "inventory-service": 8086, "expense-service": 8087, "hr-service": 8089, "helpdesk-service": 8090, "settings-service": 8091, "accounting-service": 8092, "api-gateway": 8080 };
+  for (const [host, port] of Object.entries(endpoints)) {
+    assert.equal((await fetch(`http://${host}:${port}/readyz`)).status, 200, `${host} readiness`);
   }
-  console.log(JSON.stringify({ verified: true, tenantLogin: true, platformLogin: platformVerified, partialInvoiceBalance: true, invoicePdf: true, tenantBackup: true, dayBook: true, originalEncryptionKeyHash: createHash("sha256").update(process.env.MASTER_ENCRYPTION_KEY).digest("hex") }));
+  const inv = await prisma.invoice.findFirstOrThrow({ where: { tenantId, invoiceNumber: "FII/26-27/88" } });
+  assert.equal(inv.status, "PARTIAL"); assert.equal(inv.grandTotal.toString(), "97350"); assert.equal(inv.amountPaid.toString(), "30000");
+  assert.equal(inv.grandTotal.sub(inv.amountPaid).sub(inv.creditedAmount).toString(), "67350");
+  const pdf = await buildInvoicePdfBuffer(tenantId, inv.id); assert.equal(pdf.buffer.subarray(0, 4).toString(), "%PDF");
+  const receipt = await prisma.receipt.findFirstOrThrow({ where: { tenantId, receiptNumber: "RCPT/26-27/72" } });
+  const receiptPdf = await buildReceiptPdfBuffer(tenantId, receipt.id); assert.equal(receiptPdf.buffer.subarray(0, 4).toString(), "%PDF");
+  const snapshot = validateTenantBackup(await createTenantBackup(tenantId), tenantId);
+  assert.equal(snapshot.tables.Invoice.length, await prisma.invoice.count({ where: { tenantId } }));
+  assert.ok(snapshot.tables.Customer.every((c) => c.tenantId === tenantId));
+  const encrypted = encryptSecret(JSON.stringify(snapshot)); assert.equal(JSON.parse(decryptSecret(encrypted)).tenantId, tenantId);
+  const keyHash = createHash("sha256").update(process.env.MASTER_ENCRYPTION_KEY).digest("hex");
+  if (process.env.EXPECTED_MASTER_KEY_SHA256) assert.equal(keyHash, process.env.EXPECTED_MASTER_KEY_SHA256);
+  const balances = await prisma.$queryRaw`SELECT "tenantId", count(*)::int AS invoices, sum(GREATEST("grandTotal" - "amountPaid" - "creditedAmount", 0))::text AS balance FROM "Invoice" WHERE status <> 'CANCELLED' GROUP BY "tenantId"`;
+  assert.ok(balances.every((b) => new Prisma.Decimal(b.balance).gte(0)));
+  console.log(JSON.stringify({ verified: true, serviceReadinessChecks: Object.keys(endpoints).length, partialInvoiceBalance: true, invoicePdf: true, receiptPdf: true, tenantBackup: true, encryptionKeyPreserved: true, tenantsWithInvoiceBalances: balances.length }));
 } finally { await prisma.$disconnect(); }

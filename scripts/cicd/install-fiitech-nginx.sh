@@ -8,7 +8,8 @@ site=/etc/nginx/sites-available/fii-billing
 link=/etc/nginx/sites-enabled/fii-billing
 [[ "$mode" == prepare || "$mode" == https ]] || exit 2
 if [[ "$mode" == https ]]; then
-  [[ -f "$shared/public-ready.flag" ]] || { echo 'Final data cutover and credential verification must complete before public access.' >&2; exit 2; }
+  [[ -f "$shared/final-cutover.flag" ]] || { echo 'Final data cutover must complete before certificate setup.' >&2; exit 2; }
+  install -d -o dinez17 -g dinez17 -m 755 /var/lib/fii-billing-public
   for domain in sales.fiitech.in customer.fiitech.in platform.fiitech.in; do
     getent ahostsv4 "$domain" | awk '{print $1}' | grep -qx '202.61.120.82' || { echo "Update the A record for $domain to 202.61.120.82 first." >&2; exit 2; }
   done
@@ -36,3 +37,4 @@ if ! nginx -t; then
 fi
 systemctl reload nginx
 printf 'Billing nginx %s configuration installed. Other sites were retained.\n' "$mode"
+if [[ "$mode" == https && ! -f /var/lib/fii-billing-public/ready ]]; then echo 'HTTPS is ready; public application access remains in maintenance mode until the deployment operator activates it.'; fi

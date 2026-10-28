@@ -18,13 +18,13 @@ sudo bash /opt/fii-billing/shared/install-fiitech-nginx.sh prepare
 
 This installs an ACME challenge/maintenance site for the three hostnames, checks nginx configuration and reloads only after validation. The application remains private. Confirm public routing by requesting `http://sales.fiitech.in/.well-known/acme-challenge/fii-probe`; it must return `fii-main-billing-48dcbf74`.
 
-After DNS resolution, final data cutover, default-credential review and successful private application verification, the deployment operator records `/opt/fii-billing/shared/public-ready.flag`. The administrator can then run:
+After DNS resolution and the fingerprint-verified final data cutover, the administrator can run:
 
 ```sh
 sudo bash /opt/fii-billing/shared/install-fiitech-nginx.sh https
 ```
 
-The command obtains one Let's Encrypt certificate covering all three hostnames, using the webroot challenge and cert-specific nginx reload hook. It accepts the ACME terms without registering an email contact. A certificate owner can add a verified contact email later with certbot. DNS and HTTP port 80 must reach this nginx instance. The helper refuses public activation until the cutover marker exists.
+The command obtains one Let's Encrypt certificate covering all three hostnames, using the webroot challenge and cert-specific nginx reload hook. It accepts the ACME terms without registering an email contact. A certificate owner can add a verified contact email later with certbot. DNS and HTTP port 80 must reach this nginx instance. The helper requires the final data-cutover marker. HTTPS then remains in maintenance mode until `/var/lib/fii-billing-public/ready` exists. Only the deployment operator creates that marker after private application verification and default-credential review, also recording `/opt/fii-billing/shared/public-ready.flag`. This avoids exposing the known demo password while certificates are being prepared and allows final activation without another nginx reload.
 
 The HTTPS configuration proxies API requests directly from public nginx to the loopback gateway. It overwrites incoming forwarded-address headers with the real peer address, maintaining the gateway's one-proxy trust setting. UI requests go to their respective tenant, customer and platform containers. This avoids treating every public user as the internal frontend proxy for login rate limiting. File uploads allow 256 MiB and API requests have a 180-second timeout.
 
