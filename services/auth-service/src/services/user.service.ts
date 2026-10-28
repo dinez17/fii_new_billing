@@ -88,7 +88,10 @@ export async function updateUser(tenantId: string, actorId: string, id: string, 
       await tx.userRole.createMany({ data: input.roleIds.map((roleId) => ({ userId: id, roleId })) });
     }
   });
-  await audit({ tenantId, userId: actorId, action: "USER_UPDATE", entity: "User", entityId: id, after: input as object });
+  await audit({ tenantId, userId: actorId, action: "USER_UPDATE", entity: "User", entityId: id, after: {
+    name: input.name, phone: input.phone, status: input.status, roleIds: input.roleIds,
+    passwordChanged: !!input.password,
+  } });
 }
 
 export async function resetUserPassword(tenantId: string, actorId: string, id: string, newPassword: string) {
