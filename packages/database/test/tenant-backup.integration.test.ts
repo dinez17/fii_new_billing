@@ -1,0 +1,87 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { prisma } from "../src/client.js";
+import { createTenantBackup, restoreTenantBackup, validateTenantBackup, type TenantBackup } from "../src/tenant-backup.js";
+const suite = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
+suite("tenant business backup and restore isolation", () => {
+  let a = "", b = "", actor = "", empty: TenantBackup, customerId = "";
+  const encode = (s: TenantBackup) => JSON.stringify(s);
+  beforeEach(async () => {
+    const stamp = `${Date.now()}-${Math.random()}`;
+    a = (await prisma.tenant.create({ data: { name: "Tenant A", subdomain: `bak-a-${stamp}`, licenseStatus: "ACTIVE", maxCustomers: 50 } })).id;
+    b = (await prisma.tenant.create({ data: { name: "Tenant B", subdomain: `bak-b-${stamp}` } })).id;
+    actor = (await prisma.user.create({ data: { tenantId: a, name: "Admin", email: "admin@example.test", passwordHash: "unchanged-test-hash" } })).id;
+    empty = await createTenantBackup(a);
+    const c = await prisma.customer.create({ data: { tenantId: a, code: "C-001", name: "Customer A", additionalEmails: ["billing@example.test"], openingBalance: "123.45" } }); customerId = c.id;
+    await prisma.customerDocument.create({ data: { customerId, kind: "ID_FRONT", fileName: "id.png", mimeType: "image/png", sizeBytes: 5, contentEncrypted: "encrypted-document" } });
+    await prisma.customerKyc.create({ data: { customerId, idProofType: "TEST", idProofNumberEncrypted: "encrypted-id" } });
+    const i = await prisma.invoice.create({ data: { tenantId: a, customerId, invoiceNumber: "INV-1", invoiceType: "MANUAL", fyCode: "2026-27", invoiceDate: new Date("2026-10-01"), dueDate: new Date("2026-10-10"), placeOfSupply: "33", subTotal: "100.05", taxableValue: "100.05", grandTotal: "118.06", amountPaid: "30", status: "PARTIAL" } });
+    await prisma.invoiceItem.create({ data: { invoiceId: i.id, description: "Item A", unitPrice: "100.05", taxableValue: "100.05", gstRate: "18", lineTotal: "118.06" } });
+    await prisma.customer.create({ data: { tenantId: b, code: "OTHER", name: "Private B" } });
+    await prisma.product.create({ data: { tenantId: a, sku: "PRD-1", name: "Product A", stockQty: "1.125", salePrice: "50.55" } });
+    await prisma.setting.create({ data: { tenantId: a, group: "test", key: "nested", value: "saved-setting" } });
+    await prisma.legacyRecord.create({ data: { id: `legacy-${a}`, tenantId: a, sourceHash: "test", sourceTable: "customer", sourceId: "1", status: "IMPORTED", data: { enabled: true, values: [1, "two"] } } });
+  });
+  afterEach(async () => {
+    await prisma.outboxEvent.deleteMany({ where: { tenantId: a } });
+    await restoreTenantBackup(a, actor, empty, encode);
+    await prisma.auditLog.deleteMany({ where: { tenantId: a } });
+    await prisma.user.deleteMany({ where: { tenantId: a } });
+    await prisma.customer.deleteMany({ where: { tenantId: b } });
+    await prisma.tenant.deleteMany({ where: { id: { in: [a, b] } } });
+    await prisma.$disconnect();
+  });
+  it("exports only the tenant and its child documents/items, excluding platform and login records", async () => {
+    const backup = await createTenantBackup(a);
+    expect(backup.tables.Customer.map((r) => r.name)).toEqual(["Customer A"]);
+    expect(backup.tables.CustomerDocument[0].contentEncrypted).toBe("encrypted-document");
+    expect(backup.tables.InvoiceItem).toHaveLength(1);
+    expect(backup.tables.User).toBeUndefined(); expect(backup.tables.TenantLicenseEvent).toBeUndefined();
+    expect(backup.company.licenseStatus).toBeUndefined(); expect(JSON.stringify(backup)).not.toContain("Private B");
+    expect(validateTenantBackup(backup, a)).toBe(backup);
+    expect(() => validateTenantBackup(backup, b)).toThrow("another tenant");
+  });
+  it("restores decimal/JSON/array/child records, keeps credentials and license, and saves recoverable before-data", async () => {
+    const backup = await createTenantBackup(a);
+    const other = await prisma.customer.findMany({ where: { tenantId: b } });
+    await prisma.customer.update({ where: { id: customerId }, data: { name: "Changed" } });
+    await prisma.customer.create({ data: { tenantId: a, name: "Added later", code: "C-002" } });
+    await prisma.user.update({ where: { id: actor }, data: { customerId } });
+    await prisma.tenant.update({ where: { id: a }, data: { licenseStatus: "SUSPENDED", maxCustomers: 60 } });
+    const result = await restoreTenantBackup(a, actor, backup, encode);
+    expect(await prisma.customer.findMany({ where: { tenantId: b } })).toEqual(other);
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
+    expect(c.name).toBe("Customer A"); expect(c.additionalEmails).toEqual(["billing@example.test"]); expect(c.openingBalance.toString()).toBe("123.45");
+    expect(await prisma.customer.count({ where: { tenantId: a } })).toBe(1);
+    expect((await prisma.invoice.findFirstOrThrow({ where: { tenantId: a } })).amountPaid.toString()).toBe("30");
+    expect((await prisma.product.findFirstOrThrow({ where: { tenantId: a } })).stockQty.toString()).toBe("1.125");
+    expect((await prisma.legacyRecord.findFirstOrThrow({ where: { tenantId: a } })).data).toEqual({ enabled: true, values: [1, "two"] });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: actor } })).passwordHash).toBe("unchanged-test-hash");
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: actor } })).customerId).toBe(customerId);
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: a } })).licenseStatus).toBe("SUSPENDED");
+    const recovery = await prisma.auditLog.findUniqueOrThrow({ where: { id: result.recoveryId } });
+    const before = JSON.parse((recovery.before as { encryptedBackup: string }).encryptedBackup) as TenantBackup;
+    expect(before.tables.Customer).toHaveLength(2);
+    expect(before.tables.Customer.some((r) => r.name === "Changed")).toBe(true);
+    await restoreTenantBackup(a, actor, before, encode);
+    expect(await prisma.customer.count({ where: { tenantId: a } })).toBe(2);
+  });
+  it("rejects foreign ownership, invalid child links and schema changes before mutation", async () => {
+    const backup = await createTenantBackup(a);
+    const wrongTenant = structuredClone(backup); wrongTenant.tables.Customer[0].tenantId = b;
+    expect(() => validateTenantBackup(wrongTenant, a)).toThrow("Invalid tenant data");
+    const wrongChild = structuredClone(backup); wrongChild.tables.InvoiceItem[0].invoiceId = "foreign-invoice";
+    expect(() => validateTenantBackup(wrongChild, a)).toThrow("Invalid related records");
+    await expect(restoreTenantBackup(b, actor, backup, encode)).rejects.toThrow("another tenant");
+    await expect(restoreTenantBackup(a, actor, { ...backup, schema: "old" }, encode)).rejects.toThrow("version");
+    expect(await prisma.customer.count({ where: { tenantId: a } })).toBe(1);
+  });
+  it("rolls back all changes on an invalid row and refuses restore while events are pending", async () => {
+    const backup = await createTenantBackup(a);
+    const bad = structuredClone(backup); bad.tables.Product[0].stockQty = "not-a-number";
+    await expect(restoreTenantBackup(a, actor, bad, encode)).rejects.toThrow();
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: customerId } })).name).toBe("Customer A");
+    expect(await prisma.auditLog.count({ where: { tenantId: a } })).toBe(0);
+    await prisma.outboxEvent.create({ data: { tenantId: a, topic: "test", eventKey: a, payload: {} } });
+    await expect(restoreTenantBackup(a, actor, backup, encode)).rejects.toThrow("pending");
+  });
+});

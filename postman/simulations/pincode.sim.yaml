@@ -1,0 +1,6 @@
+simulation: pincode
+routing: path
+mocks:
+  - name: pincode
+    routeKey: postal
+    path: postman/mocks/pincode

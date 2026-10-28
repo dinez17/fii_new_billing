@@ -1,0 +1,39 @@
+# Replace example hostnames and have the server's certificate tooling add HTTPS
+# before public cutover. Do not replace existing unrelated nginx sites.
+server {
+    listen 80;
+    server_name billing.example.com;
+    client_max_body_size 256m;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+    }
+}
+server {
+    listen 80;
+    server_name platform.example.com;
+    client_max_body_size 256m;
+    location / {
+        proxy_pass http://127.0.0.1:8002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+    }
+}
+server {
+    listen 80;
+    server_name portal.example.com;
+    location / {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+    }
+}

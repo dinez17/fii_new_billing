@@ -1,0 +1,11 @@
+version: 1
+id: 15644a8a-652b-4e48-9277-6eb609d5aafe
+name: pincode
+slug: pincode
+protocol: http
+interceptRequests: true
+port: 4500
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

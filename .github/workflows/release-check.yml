@@ -1,0 +1,25 @@
+name: Release check
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm check
+      - run: docker build -f Dockerfile -t fii-billing-backend:${GITHUB_SHA} .
+      - run: docker build -f apps/admin-web/Dockerfile -t fii-billing-admin:${GITHUB_SHA} .
+      - run: docker build -f apps/customer-portal/Dockerfile -t fii-billing-portal:${GITHUB_SHA} .

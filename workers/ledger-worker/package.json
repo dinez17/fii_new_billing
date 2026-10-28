@@ -1,0 +1,20 @@
+{
+  "name": "@fii/ledger-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@fii/common": "workspace:*",
+    "@fii/database": "workspace:*",
+    "@fii/kafka": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

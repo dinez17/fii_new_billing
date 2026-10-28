@@ -1,0 +1,26 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$ADMIN_DOMAIN} {
+  encode zstd gzip
+  handle /grafana/* {
+    reverse_proxy grafana:3000
+  }
+  reverse_proxy admin-web:80
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}
+
+{$PORTAL_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy customer-portal:80
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}

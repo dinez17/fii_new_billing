@@ -1,0 +1,275 @@
+# ── FII Billing — production stack ───────────────────────────────────
+# Usage:
+#   cp .env.example .env          # set MASTER_ENCRYPTION_KEY etc.
+#   node scripts/generate-keys.mjs
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Admin UI → http://localhost:8000 · Customer portal → http://localhost:8001
+name: fii-billing-prod
+
+# NOTE: only `migrate` carries the build: section — one build of the shared
+# image; every other service reuses the local tag (pull_policy: never).
+x-app: &app
+  image: fii-billing-app
+  pull_policy: never
+  env_file: .env
+  environment: &app-env
+    NODE_ENV: production
+    TZ: ${TZ:-Asia/Kolkata} # server timezone (override in .env)
+    DATABASE_URL: ${PROD_DATABASE_URL:?Set PROD_DATABASE_URL in .env}
+    KAFKA_BROKERS: kafka:19092
+    REDIS_URL: ${PROD_REDIS_URL:?Set PROD_REDIS_URL in .env}
+    S3_ENDPOINT: http://minio:9000
+    S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
+    S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+    JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
+    JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+  volumes:
+    - ./keys:/app/keys:ro
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    kafka: { condition: service_healthy }
+    redis: { condition: service_started }
+  restart: unless-stopped
+
+services:
+  # ── infrastructure ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      TZ: ${TZ:-Asia/Kolkata}
+      POSTGRES_USER: fii
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: fii_billing
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fii -d fii_billing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    volumes: [redisdata:/data]
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes: [kafkadata:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+    volumes: [miniodata:/data]
+    restart: unless-stopped
+
+  # ── one-shot migrate + seed ─────────────────────────────────────
+  migrate:
+    <<: *app
+    build: { context: ., dockerfile: Dockerfile }
+    pull_policy: build
+    restart: "no"
+    environment:
+      <<: *app-env
+      SEED_TENANT_ADMIN_EMAIL: ${SEED_TENANT_ADMIN_EMAIL:-admin@demo.local}
+      SEED_TENANT_ADMIN_PASSWORD: ${SEED_TENANT_ADMIN_PASSWORD:-ChangeMe@123}
+      SEED_PLATFORM_ADMIN_EMAIL: ${SEED_PLATFORM_ADMIN_EMAIL:-superadmin@platform.local}
+      SEED_PLATFORM_ADMIN_PASSWORD: ${SEED_PLATFORM_ADMIN_PASSWORD:?Set SEED_PLATFORM_ADMIN_PASSWORD in .env}
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: >
+      sh -c "pnpm --filter @fii/database exec prisma migrate deploy &&
+             pnpm --filter @fii/database exec tsx prisma/seed.ts"
+
+  # ── services ────────────────────────────────────────────────────
+  api-gateway:
+    <<: *app
+    environment:
+      <<: *app-env
+      PORT: 8080
+      AUTH_SERVICE_URL: http://auth-service:8081
+      CRM_SERVICE_URL: http://crm-service:8082
+      BILLING_SERVICE_URL: http://billing-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      PURCHASE_SERVICE_URL: http://purchase-service:8085
+      INVENTORY_SERVICE_URL: http://inventory-service:8086
+      EXPENSE_SERVICE_URL: http://expense-service:8087
+      ACCOUNTING_SERVICE_URL: http://accounting-service:8092
+      HR_SERVICE_URL: http://hr-service:8089
+      HELPDESK_SERVICE_URL: http://helpdesk-service:8090
+      SETTINGS_SERVICE_URL: http://settings-service:8091
+    command: ["node", "services/api-gateway/dist/index.js"]
+    ports: ["127.0.0.1:18080:8080"]
+
+  auth-service:
+    <<: *app
+    command: ["node", "services/auth-service/dist/index.js"]
+  crm-service:
+    <<: *app
+    command: ["node", "services/crm-service/dist/index.js"]
+  settings-service:
+    <<: *app
+    command: ["node", "services/settings-service/dist/index.js"]
+  billing-service:
+    <<: *app
+    command: ["node", "services/billing-service/dist/index.js"]
+  payment-service:
+    <<: *app
+    command: ["node", "services/payment-service/dist/index.js"]
+  purchase-service:
+    <<: *app
+    command: ["node", "services/purchase-service/dist/index.js"]
+  inventory-service:
+    <<: *app
+    command: ["node", "services/inventory-service/dist/index.js"]
+  expense-service:
+    <<: *app
+    command: ["node", "services/expense-service/dist/index.js"]
+  accounting-service:
+    <<: *app
+    command: ["node", "services/accounting-service/dist/index.js"]
+  hr-service:
+    <<: *app
+    command: ["node", "services/hr-service/dist/index.js"]
+  helpdesk-service:
+    <<: *app
+    command: ["node", "services/helpdesk-service/dist/index.js"]
+
+  # ── workers ─────────────────────────────────────────────────────
+  ledger-worker:
+    <<: *app
+    command: ["node", "workers/ledger-worker/dist/index.js"]
+  billing-worker:
+    <<: *app
+    command: ["node", "workers/billing-worker/dist/index.js"]
+  notification-worker:
+    <<: *app
+    command: ["node", "workers/notification-worker/dist/index.js"]
+  report-worker:
+    <<: *app
+    command: ["node", "workers/report-worker/dist/index.js"]
+  scheduler:
+    <<: *app
+    command: ["node", "workers/scheduler/dist/index.js"]
+
+  # ── frontends ───────────────────────────────────────────────────
+  admin-web:
+    build: { context: ., dockerfile: apps/admin-web/Dockerfile }
+    depends_on: [api-gateway]
+    ports: ["127.0.0.1:8000:80"]
+    restart: unless-stopped
+
+  superadmin-web:
+    build:
+      context: .
+      dockerfile: apps/admin-web/Dockerfile
+      args:
+        VITE_CONSOLE_MODE: platform
+    depends_on: [api-gateway]
+    ports: ["127.0.0.1:8002:80"]
+    restart: unless-stopped
+
+  customer-portal:
+    build: { context: ., dockerfile: apps/customer-portal/Dockerfile }
+    depends_on: [api-gateway]
+    ports: ["127.0.0.1:8001:80"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    environment:
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?Set ADMIN_DOMAIN in .env}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN:?Set PORTAL_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [admin-web, customer-portal]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: [observability]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheusdata:/prometheus
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    profiles: [observability]
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.3.2
+    profiles: [observability]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./deploy/observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - lokidata:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    profiles: [observability]
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./deploy/observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: https://${ADMIN_DOMAIN}/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./deploy/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafanadata:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  kafkadata:
+  miniodata:
+  caddydata:
+  caddyconfig:
+  prometheusdata:
+  lokidata:
+  grafanadata:

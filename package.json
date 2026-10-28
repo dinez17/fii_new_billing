@@ -1,0 +1,71 @@
+{
+  "name": "fii-billing",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint apps services workers packages scripts --max-warnings 0",
+    "dev:infra": "docker compose up -d postgres redis kafka minio",
+    "db:generate": "pnpm --filter @fii/database db:generate",
+    "db:migrate": "pnpm --filter @fii/database db:migrate",
+    "db:deploy": "pnpm --filter @fii/database db:deploy",
+    "db:seed": "pnpm --filter @fii/database db:seed",
+    "db:validate": "pnpm --filter @fii/database exec prisma validate",
+    "gateway:dev": "pnpm --filter @fii/api-gateway dev",
+    "auth:dev": "pnpm --filter @fii/auth-service dev",
+    "crm:dev": "pnpm --filter @fii/crm-service dev",
+    "settings:dev": "pnpm --filter @fii/settings-service dev",
+    "billing:dev": "pnpm --filter @fii/billing-service dev",
+    "payments:dev": "pnpm --filter @fii/payment-service dev",
+    "ledger:dev": "pnpm --filter @fii/ledger-worker dev",
+    "billing-worker:dev": "pnpm --filter @fii/billing-worker dev",
+    "scheduler:dev": "pnpm --filter @fii/scheduler dev",
+    "notify:dev": "pnpm --filter @fii/notification-worker dev",
+    "purchase:dev": "pnpm --filter @fii/purchase-service dev",
+    "inventory:dev": "pnpm --filter @fii/inventory-service dev",
+    "expense:dev": "pnpm --filter @fii/expense-service dev",
+    "hr:dev": "pnpm --filter @fii/hr-service dev",
+    "helpdesk:dev": "pnpm --filter @fii/helpdesk-service dev",
+    "accounting:dev": "pnpm --filter @fii/accounting-service dev",
+    "report-worker:dev": "pnpm --filter @fii/report-worker dev",
+    "dev": "concurrently -n gateway,auth,crm,settings,billing,payments,ledger,bworker,sched,notify,purchase,inventory,expense,hr,helpdesk,accounting,rworker -c blue,green,yellow,magenta,cyan,white,gray,red,blue,green,yellow,magenta,cyan,white,gray,blue,green \"pnpm gateway:dev\" \"pnpm auth:dev\" \"pnpm crm:dev\" \"pnpm settings:dev\" \"pnpm billing:dev\" \"pnpm payments:dev\" \"pnpm ledger:dev\" \"pnpm billing-worker:dev\" \"pnpm scheduler:dev\" \"pnpm notify:dev\" \"pnpm purchase:dev\" \"pnpm inventory:dev\" \"pnpm expense:dev\" \"pnpm hr:dev\" \"pnpm helpdesk:dev\" \"pnpm accounting:dev\" \"pnpm report-worker:dev\"",
+    "keys:generate": "node scripts/generate-keys.mjs",
+    "web:dev": "pnpm --filter admin-web dev",
+    "portal:dev": "pnpm --filter customer-portal dev",
+    "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "cross-env RUN_INTEGRATION_TESTS=true vitest run integration.test.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build",
+    "test:watch": "vitest",
+    "loadtest:seed": "tsx scripts/loadtest/seed-subscribers.ts",
+    "loadtest": "k6 run scripts/loadtest/api.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^20.17.9",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.4.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": ">=1.20.0",
+      "body-parser": ">=1.20.9",
+      "follow-redirects": ">=1.16.1",
+      "nodemailer": ">=10.0.6",
+      "proxy-addr": ">=2.0.8",
+      "zod": ">=4.6.6"
+    }
+  }
+}

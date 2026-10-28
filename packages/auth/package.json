@@ -1,0 +1,25 @@
+{
+  "name": "@fii/auth",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fii/common": "workspace:*",
+    "@fii/database": "workspace:*",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "express": "^4.21.2",
+    "typescript": "^5.6.3"
+  },
+  "peerDependencies": {
+    "express": "^4.21.2"
+  }
+}

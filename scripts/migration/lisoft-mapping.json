@@ -1,0 +1,8 @@
+{
+  "companies": [
+    { "oldCompanyId": "1", "name": "FIRST IDEA INFOTECH", "tenantId": "7ab94e71-ee0f-4e3f-84b3-94d43e99c303", "subdomain": "fii" },
+    { "oldCompanyId": "30", "name": "SKY NETWORK", "tenantId": "08124dcf-095c-4226-acf7-560cae56e5e6", "subdomain": "skynet" }
+  ],
+  "mode": "staging-only",
+  "preserveExistingLiveRecords": true
+}

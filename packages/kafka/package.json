@@ -1,0 +1,20 @@
+{
+  "name": "@fii/kafka",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "uuid": "^11.0.3",
+    "@fii/database": "workspace:*",
+    "@fii/common": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

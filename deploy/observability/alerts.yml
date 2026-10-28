@@ -1,0 +1,28 @@
+groups:
+  - name: fii-billing
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.instance }} is unavailable" }
+      - alert: ElevatedServerErrors
+        expr: sum by (service) (rate(http_request_duration_seconds_count{status=~"5.."}[5m])) > 0.1
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Elevated 5xx rate for {{ $labels.service }}" }
+      - alert: HighP95Latency
+        expr: histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "High p95 latency for {{ $labels.service }}" }
+      - alert: DeadLetterQueueNotEmpty
+        expr: dlq_depth > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "DLQ {{ $labels.topic }} is not empty" }
+      - alert: ProcessMemoryHigh
+        expr: process_resident_memory_bytes > 1073741824
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Process memory exceeds 1 GiB on {{ $labels.instance }}" }

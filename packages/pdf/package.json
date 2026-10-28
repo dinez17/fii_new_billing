@@ -1,0 +1,21 @@
+{
+  "name": "@fii/pdf",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fii/common": "workspace:*",
+    "@fii/database": "workspace:*",
+    "pdf-lib": "^1.17.1",
+    "pdfkit": "^0.15.1"
+  },
+  "devDependencies": {
+    "@types/pdfkit": "^0.13.8",
+    "typescript": "^5.6.3"
+  }
+}

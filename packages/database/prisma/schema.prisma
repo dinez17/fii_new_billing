@@ -1,0 +1,1464 @@
+// FII Billing — Multi-tenant ERP/Billing/CRM/Helpdesk/Accounting
+// Single source of truth. All tenant-owned models carry tenantId.
+// Money = Decimal(14,2). Never delete financial rows; use status/reversals.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────── ENUMS
+
+enum UserType {
+  STAFF
+  CUSTOMER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum SubscriberType {
+  PREPAID
+  POSTPAID
+}
+
+enum SubscriberStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  UNPAID
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum InvoiceType {
+  SUBSCRIPTION
+  MANUAL
+}
+
+enum GstTreatment {
+  B2B
+  B2C
+  EXPORT
+  SEZ
+  NIL
+}
+
+enum PaymentMode {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+  UPI
+  CARD
+  GATEWAY
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum Gateway {
+  RAZORPAY
+  CASHFREE
+}
+
+enum NoteStatus {
+  ISSUED
+  ADJUSTED
+  CANCELLED
+}
+
+enum PoStatus {
+  DRAFT
+  SENT
+  PARTIAL_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum PurchaseInvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum StockMoveType {
+  PURCHASE_IN
+  SALE_OUT
+  ADJUST_IN
+  ADJUST_OUT
+  PURCHASE_RETURN_OUT
+  OPENING
+}
+
+enum ExpenseStatus {
+  RECORDED
+  CANCELLED
+}
+
+enum LedgerPartyType {
+  CUSTOMER
+  SUPPLIER
+}
+
+enum LedgerEntryType {
+  INVOICE
+  PAYMENT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  PURCHASE_INVOICE
+  SUPPLIER_PAYMENT
+  PURCHASE_RETURN
+  OPENING_BALANCE
+  ADJUSTMENT
+}
+
+enum DayBookType {
+  CASH_IN
+  CASH_OUT
+}
+
+enum DayBookSource {
+  INVOICE_PAYMENT
+  EXPENSE
+  SUPPLIER_PAYMENT
+  PAYROLL
+  REFUND
+  MANUAL
+  OPENING
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_NOTICE
+  RESIGNED
+  TERMINATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+  HOLIDAY
+  WEEK_OFF
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollStatus {
+  DRAFT
+  GENERATED
+  PAID
+}
+
+enum ComplaintStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum DocType {
+  INVOICE
+  RECEIPT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  COMPLAINT
+  PURCHASE_ORDER
+  PURCHASE_INVOICE
+  PAYMENT_VOUCHER
+  QUOTATION
+  CUSTOMER
+  SUBSCRIBER
+  GRN
+  EXPENSE
+}
+
+enum ReportJobStatus {
+  QUEUED
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum BillingRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum LicenseStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────── TENANCY
+
+model Tenant {
+  id           String   @id @default(uuid())
+  name         String
+  subdomain    String   @unique
+  legalName    String?
+  gstin        String?
+  pan          String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  stateCode    String? // GST state code e.g. "33"
+  pincode      String?
+  phone        String?
+  email        String?
+  logoUrl      String?
+  signatureUrl String?
+  invoiceTerms String?
+  // bank details printed on invoices
+  bankPayableAt String?
+  bankName      String?
+  bankBranch    String?
+  bankAccountNo String?
+  bankIfsc      String?
+  isActive     Boolean  @default(true)
+  planCode     String   @default("STANDARD") // SaaS tier
+  licenseStatus LicenseStatus @default(TRIAL)
+  trialEndsAt   DateTime?
+  licenseStartsAt DateTime?
+  licenseEndsAt DateTime?
+  licenseKeyHash String? @unique
+  maxUsers      Int @default(10)
+  maxCustomers  Int @default(1000)
+  suspendedAt   DateTime?
+  suspensionReason String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users     User[]
+  customers Customer[]
+  licenseEvents TenantLicenseEvent[]
+
+  @@index([subdomain])
+}
+
+model TenantLicenseEvent {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  action      String
+  planCode    String
+  status      LicenseStatus
+  startsAt    DateTime?
+  endsAt      DateTime?
+  maxUsers    Int
+  maxCustomers Int
+  actorUserId String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+// ─────────────────────────────────────────────── AUTH & RBAC
+
+model User {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  userType     UserType   @default(STAFF)
+  name         String
+  email        String
+  phone        String?
+  passwordHash String
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  failedLogins Int        @default(0)
+  lockoutUntil DateTime?
+  emailVerifiedAt DateTime?
+  mfaEnabled   Boolean    @default(false)
+  mfaSecret    String?
+  // for CUSTOMER portal users
+  customerId   String?    @unique
+  customer     Customer?  @relation(fields: [customerId], references: [id])
+  // for STAFF linked to HR
+  employeeId   String?    @unique
+  employee     Employee?  @relation(fields: [employeeId], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+  accountTokens AccountToken[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, userType])
+}
+
+model AccountToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
+  @@index([expiresAt])
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  tenantId    String? // null = system role (Super Admin etc.)
+  code        String // SUPER_ADMIN, ADMIN, MANAGER, ACCOUNTANT, BILLING_STAFF, TECHNICIAN, SUPPORT_STAFF, HR, CUSTOMER
+  name        String
+  description String?
+  isSystem    Boolean @default(false)
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([tenantId, code])
+}
+
+model Permission {
+  id     String @id @default(uuid())
+  module String // e.g. "invoice"
+  action String // e.g. "create" | "read" | "update" | "delete" | "export" | "approve"
+
+  roles RolePermission[]
+
+  @@unique([module, action])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique // sha256 of token
+  expiresAt DateTime
+  revokedAt DateTime?
+  replacedBy String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String // LOGIN, LOGOUT, INVOICE_CREATE, SETTINGS_UPDATE ...
+  entity    String?
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entity, entityId])
+}
+
+// ─────────────────────────────────────────────── CRM: CUSTOMER & SUBSCRIBER
+
+model Customer {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  code           String // auto number series
+  name           String
+  email          String?
+  additionalEmails String[] @default([])
+  stateName String?
+  installationCity String?
+  installationState String?
+  installationStateCode String?
+  installationPincode String?
+  phone          String?
+  altPhone       String?
+  gstin          String?
+  gstTreatment   GstTreatment @default(B2C)
+  billingAddress String?
+  serviceAddress String?
+  city           String?
+  stateCode      String? // for IGST vs CGST/SGST decision
+  pincode        String?
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  portalEnabled  Boolean  @default(true)
+  isActive       Boolean  @default(true)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subscribers Subscriber[]
+  invoices    Invoice[]
+  payments    Payment[]
+  complaints  Complaint[]
+  portalUser  User?
+  kyc         CustomerKyc?
+  documents   CustomerDocument[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, phone])
+  @@index([tenantId, name])
+}
+
+model CustomerKyc {
+  customerId String @id
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  idProofType String?
+  idProofNumberEncrypted String?
+  updatedAt DateTime @updatedAt
+}
+
+// Immutable legacy source records, including held financial exceptions.
+model LegacyRecord {
+  id          String   @id
+  tenantId    String
+  sourceHash  String
+  sourceTable String
+  sourceId    String
+  data        Json
+  status      String // IMPORTED | REVIEW | ARCHIVED
+  reason      String?
+  targetModel String?
+  targetId    String?
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, sourceHash, sourceTable, sourceId])
+  @@index([tenantId, status, sourceTable])
+}
+
+model CustomerDocument {
+  id String @id @default(uuid())
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kind String
+  fileName String
+  mimeType String
+  sizeBytes Int
+  contentEncrypted String
+  uploadedById String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerId, kind])
+}
+
+model Plan {
+  id           String   @id @default(uuid())
+  tenantId     String
+  name         String
+  code         String
+  description  String?
+  price        Decimal  @db.Decimal(14, 2) // exclusive of GST
+  gstRate      Decimal  @default(18) @db.Decimal(5, 2)
+  hsnSac       String? // SAC for services
+  billingCycleMonths Int @default(1)
+  planType     SubscriberType @default(PREPAID)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscriberPlans SubscriberPlan[]
+
+  @@unique([tenantId, code])
+}
+
+model Subscriber {
+  id             String           @id @default(uuid())
+  tenantId       String
+  customerId     String
+  customer       Customer         @relation(fields: [customerId], references: [id])
+  code           String // subscriber/connection number
+  poNumber       String?
+  subscriberType SubscriberType
+  billingCycleMonths Int          @default(1) // 1=monthly, 3=quarterly, 6=half-yearly, 12=annual
+  status         SubscriberStatus @default(ACTIVE)
+  activationDate DateTime
+  deactivationDate DateTime?
+  installAddress String?
+  meta           Json? // box no, mac, area etc.
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  plans    SubscriberPlan[]
+  invoices Invoice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status, subscriberType])
+}
+
+model SubscriberPlan {
+  id           String    @id @default(uuid())
+  tenantId     String
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id])
+  planId       String
+  plan         Plan      @relation(fields: [planId], references: [id])
+  startDate    DateTime
+  endDate      DateTime? // null = current
+  priceOverride Decimal? @db.Decimal(14, 2)
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, subscriberId, endDate])
+}
+
+// ─────────────────────────────────────────────── FINANCIAL YEAR & NUMBER SERIES
+
+model FinancialYear {
+  id        String   @id @default(uuid())
+  tenantId  String
+  code      String // "2026-27"
+  startDate DateTime // 2026-04-01
+  endDate   DateTime // 2027-03-31
+  isActive  Boolean  @default(false)
+  isLocked  Boolean  @default(false)
+  lockedAt  DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, code])
+}
+
+model NumberSeries {
+  id        String  @id @default(uuid())
+  tenantId  String
+  docType   DocType
+  fyCode    String // reset per FY
+  prefix    String // "INV/26-27/"
+  nextNumber Int    @default(1)
+  padding   Int     @default(5)
+
+  @@unique([tenantId, docType, fyCode])
+}
+
+// ─────────────────────────────────────────────── BILLING & INVOICING
+
+model BillingRun {
+  id          String           @id @default(uuid())
+  tenantId    String
+  cycleType   SubscriberType
+  periodStart DateTime
+  periodEnd   DateTime
+  status      BillingRunStatus @default(PENDING)
+  totalCount  Int              @default(0)
+  successCount Int             @default(0)
+  failedCount Int              @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  items BillingRunItem[]
+
+  @@unique([tenantId, cycleType, periodStart]) // duplicate run prevention
+}
+
+model BillingRunItem {
+  id           String     @id @default(uuid())
+  billingRunId String
+  billingRun   BillingRun @relation(fields: [billingRunId], references: [id])
+  subscriberId String
+  invoiceId    String?
+  success      Boolean
+  error        String?
+  createdAt    DateTime   @default(now())
+
+  @@index([billingRunId, success])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  tenantId      String
+  invoiceNumber String
+  poNumber      String? // subscriber PO snapshot at issuance
+  invoiceType   InvoiceType   @default(SUBSCRIPTION)
+  fyCode        String
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  subscriberId  String?
+  subscriber    Subscriber?   @relation(fields: [subscriberId], references: [id])
+  periodStart   DateTime? // billing period
+  periodEnd     DateTime?
+  invoiceDate   DateTime
+  dueDate       DateTime
+  placeOfSupply String // state code
+  gstTreatment  GstTreatment  @default(B2C)
+  isInterState  Boolean       @default(false)
+  subTotal      Decimal       @db.Decimal(14, 2)
+  discountTotal Decimal       @default(0) @db.Decimal(14, 2)
+  taxableValue  Decimal       @db.Decimal(14, 2)
+  cgst          Decimal       @default(0) @db.Decimal(14, 2)
+  sgst          Decimal       @default(0) @db.Decimal(14, 2)
+  igst          Decimal       @default(0) @db.Decimal(14, 2)
+  roundOff      Decimal       @default(0) @db.Decimal(14, 2)
+  grandTotal    Decimal       @db.Decimal(14, 2)
+  amountPaid    Decimal       @default(0) @db.Decimal(14, 2)
+  creditedAmount Decimal      @default(0) @db.Decimal(14, 2) // total of active (non-cancelled) credit notes
+  status        InvoiceStatus @default(UNPAID)
+  notes         String?
+  terms         String?
+  pdfUrl        String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items       InvoiceItem[]
+  payments    PaymentAllocation[]
+  creditNotes CreditNote[]
+  debitNotes  DebitNote[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@unique([tenantId, subscriberId, periodStart, invoiceType]) // duplicate invoice prevention
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, customerId])
+  @@index([tenantId, fyCode, invoiceDate])
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId   String?
+  description String
+  hsnSac      String?
+  quantity    Decimal  @default(1) @db.Decimal(12, 3)
+  unitPrice   Decimal  @db.Decimal(14, 2)
+  discount    Decimal  @default(0) @db.Decimal(14, 2)
+  taxableValue Decimal @db.Decimal(14, 2)
+  gstRate     Decimal  @db.Decimal(5, 2)
+  cgst        Decimal  @default(0) @db.Decimal(14, 2)
+  sgst        Decimal  @default(0) @db.Decimal(14, 2)
+  igst        Decimal  @default(0) @db.Decimal(14, 2)
+  lineTotal   Decimal  @db.Decimal(14, 2)
+}
+
+// ─────────────────────────────────────────────── CREDIT / DEBIT NOTES
+
+model CreditNote {
+  id           String     @id @default(uuid())
+  tenantId     String
+  noteNumber   String
+  fyCode       String
+  invoiceId    String
+  invoice      Invoice    @relation(fields: [invoiceId], references: [id])
+  customerId   String
+  noteDate     DateTime
+  reason       String
+  taxableValue Decimal    @db.Decimal(14, 2)
+  cgst         Decimal    @default(0) @db.Decimal(14, 2)
+  sgst         Decimal    @default(0) @db.Decimal(14, 2)
+  igst         Decimal    @default(0) @db.Decimal(14, 2)
+  total        Decimal    @db.Decimal(14, 2)
+  status       NoteStatus @default(ISSUED)
+  items        Json // line items snapshot
+  pdfUrl       String?
+  createdById  String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([tenantId, noteNumber])
+  @@index([tenantId, fyCode, noteDate])
+}
+
+model DebitNote {
+  id           String     @id @default(uuid())
+  tenantId     String
+  noteNumber   String
+  fyCode       String
+  invoiceId    String
+  invoice      Invoice    @relation(fields: [invoiceId], references: [id])
+  customerId   String
+  noteDate     DateTime
+  reason       String
+  taxableValue Decimal    @db.Decimal(14, 2)
+  cgst         Decimal    @default(0) @db.Decimal(14, 2)
+  sgst         Decimal    @default(0) @db.Decimal(14, 2)
+  igst         Decimal    @default(0) @db.Decimal(14, 2)
+  total        Decimal    @db.Decimal(14, 2)
+  status       NoteStatus @default(ISSUED)
+  items        Json
+  pdfUrl       String?
+  createdById  String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([tenantId, noteNumber])
+  @@index([tenantId, fyCode, noteDate])
+}
+
+// ─────────────────────────────────────────────── PAYMENTS & RECEIPTS
+
+model Payment {
+  id             String        @id @default(uuid())
+  tenantId       String
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  fyCode         String
+  amount         Decimal       @db.Decimal(14, 2)
+  mode           PaymentMode
+  status         PaymentStatus @default(SUCCESS) // gateway flows start INITIATED
+  paymentDate    DateTime      @default(now())
+  reference      String? // cheque no / UTR
+  gateway        Gateway?
+  gatewayOrderId String? // razorpay order_id
+  gatewayPaymentId String?
+  gatewaySignatureOk Boolean?
+  failureReason  String?
+  notes          String?
+  createdById    String? // null for portal self-pay
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  allocations PaymentAllocation[]
+  receipt     Receipt?
+
+  @@unique([tenantId, gatewayOrderId])
+  @@index([tenantId, customerId, paymentDate])
+  @@index([tenantId, status])
+}
+
+model PaymentAllocation {
+  id        String  @id @default(uuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id])
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  amount    Decimal @db.Decimal(14, 2)
+
+  @@unique([paymentId, invoiceId])
+}
+
+model Receipt {
+  id            String   @id @default(uuid())
+  tenantId      String
+  receiptNumber String
+  fyCode        String
+  paymentId     String   @unique
+  payment       Payment  @relation(fields: [paymentId], references: [id])
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, receiptNumber])
+}
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  gateway     Gateway
+  eventId     String // provider event id → idempotency
+  eventType   String
+  payload     Json
+  signatureOk Boolean
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([gateway, eventId])
+}
+
+// ─────────────────────────────────────────────── SUPPLIER & PURCHASE
+
+model Supplier {
+  id             String   @id @default(uuid())
+  tenantId       String
+  code           String
+  name           String
+  gstin          String?
+  email          String?
+  phone          String?
+  address        String?
+  stateCode      String?
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  purchaseOrders   PurchaseOrder[]
+  purchaseInvoices PurchaseInvoice[]
+  payments         SupplierPayment[]
+  returns          PurchaseReturn[]
+
+  @@unique([tenantId, code])
+}
+
+model PurchaseOrder {
+  id         String   @id @default(uuid())
+  tenantId   String
+  poNumber   String
+  fyCode     String
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  orderDate  DateTime
+  expectedDate DateTime?
+  status     PoStatus @default(DRAFT)
+  total      Decimal  @db.Decimal(14, 2)
+  notes      String?
+  createdById String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  items PurchaseOrderItem[]
+  grns  Grn[]
+
+  @@unique([tenantId, poNumber])
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Decimal       @db.Decimal(12, 3)
+  receivedQty     Decimal       @default(0) @db.Decimal(12, 3)
+  unitPrice       Decimal       @db.Decimal(14, 2)
+  gstRate         Decimal       @db.Decimal(5, 2)
+  lineTotal       Decimal       @db.Decimal(14, 2)
+}
+
+model Grn {
+  id              String        @id @default(uuid())
+  tenantId        String
+  grnNumber       String
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  receivedDate    DateTime
+  notes           String?
+  items           Json // [{productId, qty, remarks}]
+  createdById     String?
+  createdAt       DateTime      @default(now())
+
+  @@unique([tenantId, grnNumber])
+}
+
+model PurchaseInvoice {
+  id            String                @id @default(uuid())
+  tenantId      String
+  billNumber    String // supplier's bill no
+  ourNumber     String // internal series
+  fyCode        String
+  supplierId    String
+  supplier      Supplier              @relation(fields: [supplierId], references: [id])
+  invoiceDate   DateTime
+  dueDate       DateTime?
+  isInterState  Boolean               @default(false)
+  subTotal      Decimal               @db.Decimal(14, 2)
+  discountTotal Decimal               @default(0) @db.Decimal(14, 2)
+  taxableValue  Decimal               @db.Decimal(14, 2)
+  cgst          Decimal               @default(0) @db.Decimal(14, 2)
+  sgst          Decimal               @default(0) @db.Decimal(14, 2)
+  igst          Decimal               @default(0) @db.Decimal(14, 2)
+  grandTotal    Decimal               @db.Decimal(14, 2)
+  amountPaid    Decimal               @default(0) @db.Decimal(14, 2)
+  status        PurchaseInvoiceStatus @default(UNPAID)
+  createdById   String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  items    PurchaseInvoiceItem[]
+  payments SupplierPaymentAllocation[]
+  returns  PurchaseReturn[]
+
+  @@unique([tenantId, ourNumber])
+  @@unique([tenantId, supplierId, billNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, fyCode, invoiceDate])
+}
+
+model PurchaseInvoiceItem {
+  id                String          @id @default(uuid())
+  purchaseInvoiceId String
+  purchaseInvoice   PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id])
+  hsnSac            String?
+  quantity          Decimal         @db.Decimal(12, 3)
+  unitPrice         Decimal         @db.Decimal(14, 2)
+  discount          Decimal         @default(0) @db.Decimal(14, 2)
+  taxableValue      Decimal         @db.Decimal(14, 2)
+  gstRate           Decimal         @db.Decimal(5, 2)
+  cgst              Decimal         @default(0) @db.Decimal(14, 2)
+  sgst              Decimal         @default(0) @db.Decimal(14, 2)
+  igst              Decimal         @default(0) @db.Decimal(14, 2)
+  lineTotal         Decimal         @db.Decimal(14, 2)
+}
+
+model PurchaseReturn {
+  id                String          @id @default(uuid())
+  tenantId          String
+  returnNumber      String
+  fyCode            String
+  purchaseInvoiceId String
+  purchaseInvoice   PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
+  supplierId        String
+  supplier          Supplier        @relation(fields: [supplierId], references: [id])
+  returnDate        DateTime
+  reason            String?
+  items             Json // [{productId, qty, unitPrice, gstRate}]
+  taxableValue      Decimal         @db.Decimal(14, 2)
+  totalGst          Decimal         @db.Decimal(14, 2)
+  total             Decimal         @db.Decimal(14, 2)
+  createdAt         DateTime        @default(now())
+
+  @@unique([tenantId, returnNumber])
+}
+
+model SupplierPayment {
+  id          String   @id @default(uuid())
+  tenantId    String
+  voucherNumber String
+  fyCode      String
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  amount      Decimal  @db.Decimal(14, 2)
+  mode        PaymentMode
+  paymentDate DateTime
+  reference   String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  allocations SupplierPaymentAllocation[]
+
+  @@unique([tenantId, voucherNumber])
+  @@index([tenantId, supplierId, paymentDate])
+}
+
+model SupplierPaymentAllocation {
+  id                String          @id @default(uuid())
+  supplierPaymentId String
+  supplierPayment   SupplierPayment @relation(fields: [supplierPaymentId], references: [id])
+  purchaseInvoiceId String
+  purchaseInvoice   PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
+  amount            Decimal         @db.Decimal(14, 2)
+
+  @@unique([supplierPaymentId, purchaseInvoiceId])
+}
+
+// ─────────────────────────────────────────────── INVENTORY
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String
+  sku           String
+  name          String
+  description   String?
+  hsnSac        String?
+  unit          String   @default("NOS")
+  purchasePrice Decimal  @default(0) @db.Decimal(14, 2)
+  salePrice     Decimal  @default(0) @db.Decimal(14, 2)
+  gstRate       Decimal  @default(18) @db.Decimal(5, 2)
+  stockQty      Decimal  @default(0) @db.Decimal(12, 3) // denormalized current stock
+  reorderLevel  Decimal  @default(0) @db.Decimal(12, 3)
+  isService     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  movements     StockMovement[]
+  poItems       PurchaseOrderItem[]
+  purchaseItems PurchaseInvoiceItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, isActive])
+}
+
+model StockMovement {
+  id        String        @id @default(uuid())
+  tenantId  String
+  productId String
+  product   Product       @relation(fields: [productId], references: [id])
+  type      StockMoveType
+  quantity  Decimal       @db.Decimal(12, 3) // always positive; type gives direction
+  balanceAfter Decimal    @db.Decimal(12, 3)
+  refType   String? // PURCHASE_INVOICE | INVOICE | ADJUSTMENT | PURCHASE_RETURN
+  refId     String?
+  reason    String?
+  createdById String?
+  createdAt DateTime      @default(now())
+
+  @@index([tenantId, productId, createdAt])
+}
+
+// ─────────────────────────────────────────────── EXPENSES
+
+model ExpenseCategory {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  isActive Boolean @default(true)
+
+  expenses Expense[]
+
+  @@unique([tenantId, name])
+}
+
+model ExpenseVendor {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  gstin    String?
+  phone    String?
+
+  expenses Expense[]
+
+  @@unique([tenantId, name])
+}
+
+model Expense {
+  id           String          @id @default(uuid())
+  tenantId     String
+  fyCode       String
+  categoryId   String
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id])
+  vendorId     String?
+  vendor       ExpenseVendor?  @relation(fields: [vendorId], references: [id])
+  expenseDate  DateTime
+  description  String
+  amount       Decimal         @db.Decimal(14, 2) // taxable
+  gstRate      Decimal         @default(0) @db.Decimal(5, 2)
+  gstAmount    Decimal         @default(0) @db.Decimal(14, 2) // input tax credit
+  isInterState Boolean         @default(false)
+  total        Decimal         @db.Decimal(14, 2)
+  mode         PaymentMode
+  reference    String?
+  receiptUrl   String? // uploaded proof
+  status       ExpenseStatus   @default(RECORDED)
+  createdById  String?
+  createdAt    DateTime        @default(now())
+
+  @@index([tenantId, fyCode, expenseDate])
+  @@index([tenantId, categoryId])
+}
+
+// ─────────────────────────────────────────────── ACCOUNTING: LEDGER & DAY BOOK
+
+model LedgerEntry {
+  id         String          @id @default(uuid())
+  tenantId   String
+  partyType  LedgerPartyType
+  partyId    String // customerId or supplierId
+  fyCode     String
+  entryDate  DateTime
+  entryType  LedgerEntryType
+  refType    String? // INVOICE, PAYMENT, CREDIT_NOTE ...
+  refId      String?
+  refNumber  String?
+  debit      Decimal         @default(0) @db.Decimal(14, 2)
+  credit     Decimal         @default(0) @db.Decimal(14, 2)
+  narration  String?
+  createdAt  DateTime        @default(now())
+
+  @@index([tenantId, partyType, partyId, entryDate])
+  @@index([tenantId, fyCode])
+}
+
+model DayBookEntry {
+  id          String        @id @default(uuid())
+  tenantId    String
+  fyCode      String
+  entryDate   DateTime      @db.Date
+  type        DayBookType
+  source      DayBookSource
+  mode        PaymentMode?
+  amount      Decimal       @db.Decimal(14, 2)
+  refType     String?
+  refId       String?
+  narration   String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@index([tenantId, entryDate])
+}
+
+model DayBookClosing {
+  id             String   @id @default(uuid())
+  tenantId       String
+  closingDate    DateTime @db.Date
+  openingBalance Decimal  @db.Decimal(14, 2)
+  totalCashIn    Decimal  @db.Decimal(14, 2)
+  totalCashOut   Decimal  @db.Decimal(14, 2)
+  closingBalance Decimal  @db.Decimal(14, 2)
+  closedById     String?
+  createdAt      DateTime @default(now())
+
+  @@unique([tenantId, closingDate])
+}
+
+// ─────────────────────────────────────────────── HR: EMPLOYEE / ATTENDANCE / PAYROLL
+
+model Department {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  isActive Boolean @default(true)
+
+  employees Employee[]
+
+  @@unique([tenantId, name])
+}
+
+model Employee {
+  id           String         @id @default(uuid())
+  tenantId     String
+  code         String
+  name         String
+  email        String?
+  phone        String
+  departmentId String?
+  department   Department?    @relation(fields: [departmentId], references: [id])
+  designation  String?
+  joiningDate  DateTime
+  exitDate     DateTime?
+  status       EmployeeStatus @default(ACTIVE)
+  // salary structure (current)
+  basicSalary  Decimal        @default(0) @db.Decimal(14, 2)
+  allowances   Json? // [{name, amount}]
+  deductions   Json? // [{name, amount}]
+  bankAccount  String?
+  ifsc         String?
+  pan          String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user        User?
+  attendance  Attendance[]
+  leaves      LeaveRequest[]
+  payslips    Payslip[]
+  complaints  Complaint[]    @relation("AssignedComplaints")
+  tasks       Task[]         @relation("AssignedTasks")
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+model Attendance {
+  id         String           @id @default(uuid())
+  tenantId   String
+  employeeId String
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+  date       DateTime         @db.Date
+  status     AttendanceStatus
+  checkIn    DateTime?
+  checkOut   DateTime?
+  overtimeHours Decimal       @default(0) @db.Decimal(5, 2)
+  notes      String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([tenantId, employeeId, date])
+  @@index([tenantId, date])
+}
+
+model LeaveRequest {
+  id         String      @id @default(uuid())
+  tenantId   String
+  employeeId String
+  employee   Employee    @relation(fields: [employeeId], references: [id])
+  leaveType  String // CASUAL, SICK, EARNED, LOP
+  fromDate   DateTime    @db.Date
+  toDate     DateTime    @db.Date
+  days       Decimal     @db.Decimal(4, 1)
+  reason     String?
+  status     LeaveStatus @default(PENDING)
+  approvedById String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([tenantId, employeeId, fromDate])
+}
+
+model PayrollRun {
+  id        String        @id @default(uuid())
+  tenantId  String
+  fyCode    String
+  month     Int // 1-12
+  year      Int
+  status    PayrollStatus @default(DRAFT)
+  generatedAt DateTime?
+  createdById String?
+  createdAt DateTime      @default(now())
+
+  payslips Payslip[]
+
+  @@unique([tenantId, year, month]) // one payroll per month
+}
+
+model Payslip {
+  id            String        @id @default(uuid())
+  tenantId      String
+  payrollRunId  String
+  payrollRun    PayrollRun    @relation(fields: [payrollRunId], references: [id])
+  employeeId    String
+  employee      Employee      @relation(fields: [employeeId], references: [id])
+  basicSalary   Decimal       @db.Decimal(14, 2)
+  allowances    Json?
+  deductions    Json?
+  totalAllowances Decimal     @default(0) @db.Decimal(14, 2)
+  totalDeductions Decimal     @default(0) @db.Decimal(14, 2)
+  presentDays   Decimal       @db.Decimal(4, 1)
+  leaveDays     Decimal       @default(0) @db.Decimal(4, 1)
+  lopDays       Decimal       @default(0) @db.Decimal(4, 1)
+  leaveDeduction Decimal      @default(0) @db.Decimal(14, 2)
+  overtimeHours Decimal       @default(0) @db.Decimal(6, 2)
+  overtimePay   Decimal       @default(0) @db.Decimal(14, 2)
+  netSalary     Decimal       @db.Decimal(14, 2)
+  status        PayrollStatus @default(GENERATED)
+  paidAt        DateTime?
+  paidMode      PaymentMode?
+  pdfUrl        String?
+  createdAt     DateTime      @default(now())
+
+  @@unique([payrollRunId, employeeId])
+  @@index([tenantId, employeeId])
+}
+
+// ─────────────────────────────────────────────── HELPDESK: COMPLAINTS & TASKS
+
+model Complaint {
+  id              String          @id @default(uuid())
+  tenantId        String
+  complaintNumber String
+  customerId      String
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  subscriberId    String?
+  type            String // NO_SIGNAL, BILLING_ISSUE, SPEED, RELOCATION ...
+  subject         String
+  description     String?
+  priority        Priority        @default(MEDIUM)
+  status          ComplaintStatus @default(OPEN)
+  assignedToId    String?
+  assignedTo      Employee?       @relation("AssignedComplaints", fields: [assignedToId], references: [id])
+  assignedAt      DateTime?
+  slaHours        Int             @default(24)
+  dueAt           DateTime?
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  resolutionNotes String?
+  source          String          @default("STAFF") // STAFF | PORTAL
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  history     ComplaintStatusHistory[]
+  attachments ComplaintAttachment[]
+  tasks       Task[]
+
+  @@unique([tenantId, complaintNumber])
+  @@index([tenantId, status, priority])
+  @@index([tenantId, assignedToId, status])
+}
+
+model ComplaintStatusHistory {
+  id          String          @id @default(uuid())
+  complaintId String
+  complaint   Complaint       @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus
+  changedById String?
+  notes       String?
+  createdAt   DateTime        @default(now())
+
+  @@index([complaintId])
+}
+
+model ComplaintAttachment {
+  id          String    @id @default(uuid())
+  complaintId String
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String
+  uploadedById String?
+  createdAt   DateTime  @default(now())
+}
+
+model Task {
+  id           String     @id @default(uuid())
+  tenantId     String
+  complaintId  String?
+  complaint    Complaint? @relation(fields: [complaintId], references: [id])
+  title        String
+  description  String?
+  priority     Priority   @default(MEDIUM)
+  status       TaskStatus @default(PENDING)
+  assignedToId String?
+  assignedTo   Employee?  @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  dueDate      DateTime?
+  completedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  comments TaskComment[]
+
+  @@index([tenantId, assignedToId, status])
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  comment   String
+  authorId  String?
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────── SETTINGS & NOTIFICATIONS
+
+model Setting {
+  id          String   @id @default(uuid())
+  tenantId    String
+  group       String // SMTP | SMS | WHATSAPP | GATEWAY_RAZORPAY | GATEWAY_CASHFREE | INVOICE | GST
+  key         String
+  value       String // AES-256-GCM encrypted if isSecret
+  isSecret    Boolean  @default(false)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, group, key])
+}
+
+model NotificationTemplate {
+  id       String              @id @default(uuid())
+  tenantId String
+  code     String // INVOICE_GENERATED, PAYMENT_RECEIVED, DUE_REMINDER, COMPLAINT_ASSIGNED, COMPLAINT_RESOLVED, LOW_STOCK
+  channel  NotificationChannel
+  subject  String? // email only
+  body     String // handlebars template
+  isActive Boolean             @default(true)
+
+  @@unique([tenantId, code, channel])
+}
+
+model NotificationLog {
+  id        String              @id @default(uuid())
+  tenantId  String
+  channel   NotificationChannel
+  to        String
+  templateCode String?
+  subject   String?
+  body      String?
+  status    NotificationStatus  @default(QUEUED)
+  attempts  Int                 @default(0)
+  error     String?
+  refType   String?
+  refId     String?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([tenantId, status, createdAt])
+}
+
+// ─────────────────────────────────────────────── INFRA: OUTBOX / IDEMPOTENCY / REPORT JOBS
+
+model OutboxEvent {
+  id          String    @id @default(uuid())
+  tenantId    String
+  topic       String
+  eventKey    String // partition key
+  payload     Json
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([publishedAt, createdAt])
+}
+
+model ProcessedEvent {
+  consumerGroup String
+  eventId       String
+  processedAt   DateTime @default(now())
+
+  @@id([consumerGroup, eventId])
+}
+
+model ReportJob {
+  id          String          @id @default(uuid())
+  tenantId    String
+  reportType  String // GSTR1, GSTR3B, SALES, PL, CUSTOMER_STATEMENT ...
+  format      String // PDF | XLSX | JSON
+  filters     Json
+  status      ReportJobStatus @default(QUEUED)
+  fileUrl     String?
+  error       String?
+  requestedById String?
+  createdAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  @@index([tenantId, requestedById, createdAt])
+}

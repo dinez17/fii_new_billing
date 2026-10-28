@@ -1,0 +1,26 @@
+// Read-only production verification: no restore endpoint is called.
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+assert.ok(process.env.LEGACY_FII_LOGIN_PASSWORD, "Existing FII administrator password required");
+const root = "http://localhost:8000/api/v1";
+const login = await fetch(`${root}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", "X-FII-Console": "tenant" }, body: JSON.stringify({ email: "admin@demo.local", password: process.env.LEGACY_FII_LOGIN_PASSWORD }) });
+assert.equal(login.status, 200);
+const { accessToken } = await login.json();
+const headers = { Authorization: `Bearer ${accessToken}`, "X-FII-Console": "tenant" };
+assert.equal((await fetch(`${root}/backup`)).status, 401);
+const status = await fetch(`${root}/backup`, { headers }); assert.equal(status.status, 200);
+const info = await status.json(); assert.equal(info.scope, "tenant"); assert.equal(info.available, true);
+assert.equal(info.tenant.id, "7ab94e71-ee0f-4e3f-84b3-94d43e99c303");
+const download = await fetch(`${root}/backup/download`, { headers }); assert.equal(download.status, 200);
+assert.match(download.headers.get("content-disposition"), /\.fiibak/);
+assert.equal(download.headers.get("cache-control"), "no-store");
+const bytes = Buffer.from(await download.arrayBuffer()); assert.ok(bytes.toString().startsWith("FII-TENANT-BACKUP-1\n"));
+const inspect = await fetch(`${root}/backup/inspect`, { method: "POST", headers: { ...headers, "Content-Type": "application/octet-stream" }, body: bytes }); assert.equal(inspect.status, 200);
+const preview = await inspect.json(); assert.equal(preview.tenantId, info.tenant.id);
+assert.equal(preview.sha256, createHash("sha256").update(bytes).digest("hex"));
+assert.ok(preview.counts.Invoice > 0); assert.equal(preview.counts.User, undefined); assert.equal(preview.counts.TenantLicenseEvent, undefined);
+if (process.env.LIVE_TENANT_BACKUP_FILE) writeFileSync(process.env.LIVE_TENANT_BACKUP_FILE, bytes);
+const evidence = { verified: true, scope: info.scope, tenantId: info.tenant.id, bytes: bytes.length, businessModels: Object.keys(preview.counts).length, rows: Object.values(preview.counts).reduce((n, count) => n + count, 0), sha256: preview.sha256, liveRestorePerformed: false };
+if (process.env.LIVE_TENANT_BACKUP_RESULT) writeFileSync(process.env.LIVE_TENANT_BACKUP_RESULT, JSON.stringify(evidence, null, 2));
+console.log(JSON.stringify(evidence));

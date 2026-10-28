@@ -1,0 +1,7 @@
+# Use alongside docker-compose.prod.yml on fii-main, which already has nginx.
+# Keeps loopback-only app ports and does not bind another proxy to 80/443.
+services:
+  migrate:
+    command: ["pnpm", "--filter", "@fii/database", "exec", "prisma", "migrate", "deploy"]
+  caddy:
+    profiles: [bundled-proxy]

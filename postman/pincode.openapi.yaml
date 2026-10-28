@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info:
+  title: Postal PIN lookup used by FII
+  version: 1.0.0
+servers:
+  - url: https://api.postalpincode.in
+paths:
+  /pincode/{pincode}:
+    get:
+      parameters:
+        - in: path
+          name: pincode
+          required: true
+          schema: { type: string, pattern: '^[1-9][0-9]{5}$' }
+      responses:
+        '200':
+          description: Postal response (sample verified with provider for 600001)
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+              example:
+                - Status: Success
+                  PostOffice:
+                    - Pincode: '600001'
+                      District: Chennai
+                      State: Tamil Nadu
+        '503':
+          description: Provider unavailable
