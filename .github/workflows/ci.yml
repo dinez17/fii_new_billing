@@ -37,8 +37,8 @@ jobs:
       - name: Test deployment success and failure handling
         run: docker run --rm --network none -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo node:20-bookworm-slim bash scripts/cicd/test-deployment.sh
       - run: pnpm typecheck
-      - run: pnpm test:unit
       - run: pnpm build
+      - run: pnpm test:unit
       - run: pnpm audit --prod --audit-level high
 
   integration:
