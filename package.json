@@ -39,7 +39,7 @@
     "portal:dev": "pnpm --filter customer-portal dev",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
-    "test:integration": "cross-env RUN_INTEGRATION_TESTS=true vitest run integration.test.ts",
+    "test:integration": "cross-env RUN_INTEGRATION_TESTS=true vitest run integration.test.ts --no-file-parallelism",
     "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build",
     "test:watch": "vitest",
     "loadtest:seed": "tsx scripts/loadtest/seed-subscribers.ts",

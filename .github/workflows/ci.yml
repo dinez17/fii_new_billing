@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -12,6 +17,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://fii_test:fii_test@localhost:5432/fii_billing_test?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,6 +32,10 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm db:validate
       - run: pnpm lint
+      - name: Validate workflows
+        run: docker run --rm --network none -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+      - name: Test deployment success and failure handling
+        run: docker run --rm --network none -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo node:20-bookworm-slim bash scripts/cicd/test-deployment.sh
       - run: pnpm typecheck
       - run: pnpm test:unit
       - run: pnpm build
@@ -50,6 +61,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://fii_test:fii_test@localhost:5432/fii_billing_test?schema=public
       RUN_INTEGRATION_TESTS: "true"
+      MASTER_ENCRYPTION_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
+      SEED_PLATFORM_ADMIN_PASSWORD: IntegrationOnlyPlatform123!
+      JWT_PRIVATE_KEY_PATH: keys/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: keys/jwt-public.pem
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -63,5 +78,106 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm db:validate
       - run: pnpm db:deploy
+      - name: Prepare disposable integration fixtures
+        run: |
+          pnpm keys:generate
+          pnpm db:seed
       - run: pnpm -r build
       - run: pnpm test:integration
+
+  images:
+    name: Publish ${{ matrix.component }} image
+    needs: [verify, integration]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            dockerfile: Dockerfile
+            console: tenant
+          - component: tenant
+            dockerfile: apps/admin-web/Dockerfile
+            console: tenant
+          - component: platform
+            dockerfile: apps/admin-web/Dockerfile
+            console: platform
+          - component: portal
+            dockerfile: apps/customer-portal/Dockerfile
+            console: tenant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set image name
+        id: name
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMPONENT: ${{ matrix.component }}
+        run: echo "image=ghcr.io/${REPOSITORY,,}-$COMPONENT" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.name.outputs.image }}:sha-${{ github.sha }}
+          build-args: VITE_CONSOLE_MODE=${{ matrix.console }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+      - name: Save immutable image reference
+        env:
+          IMAGE: ${{ steps.name.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          mkdir -p image-refs
+          node -e 'require("fs").writeFileSync("image-refs/"+process.env.COMPONENT+".json", JSON.stringify({component:process.env.COMPONENT,image:process.env.IMAGE+"@"+process.env.DIGEST}))'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-ref-${{ matrix.component }}
+          path: image-refs/*.json
+          retention-days: 7
+
+  release:
+    name: Assemble deployable release
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-ref-*
+          path: image-refs
+          merge-multiple: true
+      - name: Create release manifest
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+        run: node scripts/cicd/release-manifest.mjs create image-refs release.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-images
+          path: release.json
+          retention-days: 90
+      - name: Summarize release
+        run: |
+          {
+            echo '### Ready for controlled deployment'
+            echo 'All checks passed. Four images were published by immutable digest.'
+            echo "Run the Deploy production workflow using CI run ID $GITHUB_RUN_ID."
+          } >> "$GITHUB_STEP_SUMMARY"

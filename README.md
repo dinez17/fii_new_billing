@@ -2,6 +2,8 @@
 
 Design blueprint for Indian subscriber-based SMBs. React + Node/Express + PostgreSQL + Prisma + Kafka (KafkaJS) + Docker.
 
+CI/CD: main changes run checks and publish four digest-pinned Docker images; production deployment to fii-main is manual and environment-gated. See [CI/CD setup](docs/30-cicd.md) and [server migration prerequisites](docs/29-fiimain-production.md).
+
 ## Deliverables map
 
 | # | Item | File |

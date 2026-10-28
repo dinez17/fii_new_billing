@@ -1,0 +1,90 @@
+name: Deploy production
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful main CI run ID containing release-images
+        required: true
+        type: string
+      confirmation:
+        description: Type DEPLOY to update fii-main
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: production-fiimain
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Validate deployment request and successful CI
+        id: release
+        uses: actions/github-script@v7
+        env:
+          ENABLED: ${{ vars.ENABLE_PRODUCTION_DEPLOY }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        with:
+          script: |
+            if (process.env.ENABLED !== 'true') throw new Error('Production deployment is disabled. Complete server provisioning and set ENABLE_PRODUCTION_DEPLOY=true.');
+            if (process.env.CONFIRMATION !== 'DEPLOY' || !/^[0-9]+$/.test(process.env.CI_RUN_ID)) throw new Error('Invalid deployment confirmation or CI run ID');
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(process.env.CI_RUN_ID)});
+            if (run.path !== '.github/workflows/ci.yml' || run.head_branch !== 'main' || run.head_repository.full_name !== `${context.repo.owner}/${context.repo.repo}` || !['push','workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Only completed successful main CI releases can be deployed');
+            if (!/^[a-f0-9]{40}$/.test(run.head_sha)) throw new Error('Invalid source revision');
+            core.setOutput('sha', run.head_sha);
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-images
+          path: verified-release
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify image digests and archive exact source
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          node scripts/cicd/release-manifest.mjs validate verified-release/release.json verified-release/image.env
+          git archive --format=tar.gz --output=verified-release/source.tar.gz HEAD
+      - name: Transfer and deploy to fii-main
+        env:
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ vars.PRODUCTION_SSH_PORT }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+          DEPLOY_ROOT: ${{ vars.PRODUCTION_DEPLOY_ROOT }}
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$SSH_USER" =~ ^[a-zA-Z0-9_-]+$ && "$SSH_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_ROOT" =~ ^/[a-zA-Z0-9/_-]+$ && "$DEPLOY_ROOT" != / && "$DEPLOY_ROOT" != *'..'* ]]
+          [[ -n "$SSH_PRIVATE_KEY" && -n "$SSH_KNOWN_HOSTS" ]]
+          umask 077
+          mkdir -p "$RUNNER_TEMP/fii-ssh"
+          key="$RUNNER_TEMP/fii-ssh/key"
+          hosts="$RUNNER_TEMP/fii-ssh/known_hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$hosts"
+          options=(-i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$hosts" -o ConnectTimeout=15)
+          target="$SSH_USER@$SSH_HOST"
+          upload=".fii-cicd-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${options[@]}" -p "$SSH_PORT" "$target" "umask 077; mkdir $upload"
+          scp "${options[@]}" -P "$SSH_PORT" verified-release/source.tar.gz verified-release/image.env verified-release/release.json "$target:$upload/"
+          printf -v command 'bash -s -- %q %q %q' "$RELEASE_SHA" "$DEPLOY_ROOT" "$upload"
+          ssh "${options[@]}" -p "$SSH_PORT" "$target" "$command" < scripts/cicd/receive-release.sh
+      - name: Deployment summary
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: echo "Deployed verified release $RELEASE_SHA to fii-main. Pre-deploy database backup retained on the server." >> "$GITHUB_STEP_SUMMARY"

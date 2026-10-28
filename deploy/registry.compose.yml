@@ -1,0 +1,33 @@
+# Third file after docker-compose.prod.yml and deploy/fiimain.compose.yml.
+# Production pulls verified image digests; it never builds on fii-main.
+x-backend: &backend
+  image: ${FII_BACKEND_IMAGE:?Verified backend image digest required}
+  pull_policy: always
+services:
+  migrate: *backend
+  api-gateway: *backend
+  auth-service: *backend
+  crm-service: *backend
+  settings-service: *backend
+  billing-service: *backend
+  payment-service: *backend
+  purchase-service: *backend
+  inventory-service: *backend
+  expense-service: *backend
+  accounting-service: *backend
+  hr-service: *backend
+  helpdesk-service: *backend
+  ledger-worker: *backend
+  billing-worker: *backend
+  notification-worker: *backend
+  report-worker: *backend
+  scheduler: *backend
+  admin-web:
+    image: ${FII_TENANT_IMAGE:?Verified tenant image digest required}
+    pull_policy: always
+  superadmin-web:
+    image: ${FII_PLATFORM_IMAGE:?Verified platform image digest required}
+    pull_policy: always
+  customer-portal:
+    image: ${FII_PORTAL_IMAGE:?Verified portal image digest required}
+    pull_policy: always
