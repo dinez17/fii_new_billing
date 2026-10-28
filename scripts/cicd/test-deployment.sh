@@ -19,7 +19,9 @@ for arg in "$@"; do
     pull) [[ "${FAIL_STAGE:-}" != pull ]]; exit ;;
     stop) exit 0 ;;
     exec) echo fake-custom-format-dump; exit 0 ;;
-    run) [[ "${FAIL_STAGE:-}" != migration ]]; exit ;;
+    run)
+      for option in "$@"; do [[ "$option" != --no-build ]] || { echo 'Compose run does not accept --no-build' >&2; exit 2; }; done
+      [[ "${FAIL_STAGE:-}" != migration ]]; exit ;;
     up) [[ "${FAIL_STAGE:-}" != startup ]]; exit ;;
   esac
 done

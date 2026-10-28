@@ -93,9 +93,11 @@ async function autoBackup(): Promise<void> {
 }
 
 // ── cron wiring
-cron.schedule(process.env.CRON_BACKUP ?? "0 2 * * *", () => {
-  void autoBackup().catch((e) => log.error({ err: String(e) }, "nightly backup failed"));
-});
+if (process.env.INTERNAL_BACKUP_ENABLED !== "false") {
+  cron.schedule(process.env.CRON_BACKUP ?? "0 2 * * *", () => {
+    void autoBackup().catch((e) => log.error({ err: String(e) }, "nightly backup failed"));
+  });
+}
 
 cron.schedule(process.env.CRON_PREPAID ?? "0 1 1 * *", () => {
   const now = new Date();
@@ -117,4 +119,4 @@ const stopOps = startOpsServer({ name: "scheduler", port: Number(process.env.SCH
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => { stopOps(); void prisma.$disconnect().finally(() => process.exit(0)); });
 }
-log.info("scheduler started (backup 02:00 · prepaid 1st 01:00 · postpaid month-end 23:00 · reminders 09:00)");
+log.info({ internalBackupEnabled: process.env.INTERNAL_BACKUP_ENABLED !== "false" }, "scheduler started (prepaid 1st 01:00 · postpaid month-end 23:00 · reminders 09:00)");

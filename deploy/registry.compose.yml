@@ -4,6 +4,15 @@ x-backend: &backend
   image: ${FII_BACKEND_IMAGE:?Verified backend image digest required}
   pull_policy: always
 services:
+  postgres:
+    image: ${FII_POSTGRES_IMAGE:-postgres:16-alpine}
+  redis:
+    image: ${FII_REDIS_IMAGE:-redis:7-alpine}
+  kafka:
+    image: ${FII_KAFKA_IMAGE:-apache/kafka:3.9.0}
+  minio:
+    image: ${FII_MINIO_IMAGE:-minio/minio:latest}
+    pull_policy: ${FII_MINIO_PULL_POLICY:-missing}
   migrate: *backend
   api-gateway: *backend
   auth-service: *backend
@@ -31,3 +40,12 @@ services:
   customer-portal:
     image: ${FII_PORTAL_IMAGE:?Verified portal image digest required}
     pull_policy: always
+volumes:
+  pgdata:
+    name: ${FII_POSTGRES_VOLUME:-fii-billing-prod_pgdata}
+  redisdata:
+    name: ${FII_REDIS_VOLUME:-fii-billing-prod_redisdata}
+  kafkadata:
+    name: ${FII_KAFKA_VOLUME:-fii-billing-prod_kafkadata}
+  miniodata:
+    name: ${FII_MINIO_VOLUME:-fii-billing-prod_miniodata}

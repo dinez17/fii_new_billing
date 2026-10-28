@@ -42,7 +42,7 @@ maintenance=1
 "${compose[@]}" exec -T postgres pg_dump -U fii -d fii_billing --format=custom --no-owner --no-privileges > "$backup"
 [[ -s "$backup" ]]
 sha256sum "$backup" > "$backup.sha256"
-"${compose[@]}" run --rm --no-deps --no-build --pull never migrate
+"${compose[@]}" run --rm --no-deps -T --interactive=false --pull never migrate </dev/null
 "${compose[@]}" up -d --no-deps --no-build --pull never "${apps[@]}" "${web[@]}"
 healthy=0
 for ((attempt=1; attempt<=30; attempt++)); do

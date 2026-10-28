@@ -36,4 +36,10 @@ Move the full operator database snapshot, required object files and original enc
 
 Initial infrastructure should use the source installation's image digests. If the exact MinIO image cannot be pulled from its original registry, export the existing image, verify its image ID after loading it on the target, and use a local source-version tag with pull_policy never. This preserves compatibility with the source object-storage data instead of silently changing its implementation.
 
+The registry override supports server-only FII_POSTGRES_IMAGE, FII_REDIS_IMAGE, FII_KAFKA_IMAGE, FII_MINIO_IMAGE and FII_MINIO_PULL_POLICY pins. FII_POSTGRES_VOLUME, FII_REDIS_VOLUME, FII_KAFKA_VOLUME and FII_MINIO_VOLUME allow the final cutover to use new named volumes while retaining the staging copy. Keep these values in the server .env so later CI/CD deployments continue using the correct live storage.
+
+`scripts/cicd/database-fingerprint.mjs` emits only model counts and checksums. Its business mode ignores operational logs/tokens and volatile login timestamps; full mode verifies every Prisma model before application writers resume. `bootstrap-fiimain-staging.sh` imports only into an empty database and deliberately leaves workers stopped. Compose migration commands use noninteractive stdin and supported run options.
+
+For nightly operator database backups, `backup-fiimain.sh` uses the pg_dump binary inside the running matching-version PostgreSQL container. Its output is private, checksum-verified and retained without automatic deletion. On a UTC server, a user cron at 20:30 UTC corresponds to 02:00 Asia/Kolkata. Disable the application's in-container backup with INTERNAL_BACKUP_ENABLED=false when this host-side backup is configured; its application image does not include pg_dump. Copy encrypted operator backups and the encryption keys off-host separately.
+
 Production prerequisites still include administrative nginx access, valid DNS/HTTPS, capacity monitoring and full off-host operator backups including the encryption keys. Self-service tenant backups do not replace full installation recovery.
