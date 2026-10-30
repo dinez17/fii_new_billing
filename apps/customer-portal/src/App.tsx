@@ -1,3 +1,4 @@
+import { APP_NAME, APP_LOGO, APP_TAGLINE } from "../../../packages/browser/src/brand";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage, useAuth } from "./api";
@@ -53,9 +54,9 @@ function Login() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={onSubmit}>
-        <img className="login-logo" src="/brand/fii-logo.png" alt="First Idea Infotech" />
-        <h1>Customer Portal</h1>
-        <p>View your invoices and pay online</p>
+        <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
+        <h1>{APP_NAME}</h1>
+        <p><span className="brand-tagline">{APP_TAGLINE}</span>Customer portal · View invoices and pay online</p>
         <label>Email</label>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
         <label>Password</label>
@@ -131,7 +132,7 @@ function Portal() {
         order_id: order.orderId,
         amount: order.amount,
         currency: order.currency,
-        name: me.data?.company?.name ?? "FII Billing",
+        name: me.data?.company?.name ?? APP_NAME,
         description: openInvoices.length ? `Payment for ${openInvoices.length} invoice(s)` : "Account balance payment",
         prefill: { name: me.data?.customer.name, email: me.data?.customer.email, contact: me.data?.customer.phone },
         handler: async (resp: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
@@ -163,7 +164,7 @@ function Portal() {
   return (
     <div className="wrap">
       <div className="topbar">
-        <h1>{me.data?.company?.name ?? "Customer Portal"}</h1>
+        <h1>{me.data?.company?.name ?? APP_NAME}</h1>
         <div className="who">
           <span data-theme-picker />
           {customerName} <button className="small" style={{ marginLeft: 10 }} onClick={() => void signOut()}>Logout</button>

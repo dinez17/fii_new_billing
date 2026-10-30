@@ -1,3 +1,4 @@
+import { APP_NAME, APP_ICON } from "../../../../packages/browser/src/brand";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -134,7 +135,7 @@ export function Layout() {
     enabled: !isPlatformConsole && !!user,
   });
   const tenantLogo = branding.data?.logoUrl;
-  const logo = !isPlatformConsole && tenantLogo && tenantLogo !== failedLogo ? tenantLogo : "/brand/fii-logo.png";
+  const logo = !isPlatformConsole && tenantLogo && tenantLogo !== failedLogo ? tenantLogo : APP_ICON;
   const closeMobile = () => { setMobileOpen(false); menuButton.current?.focus(); };
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
   useEffect(() => {
@@ -178,7 +179,7 @@ export function Layout() {
     <div className={`shell ${mobileOpen ? "mobile-nav-open" : ""}`}>
       {mobileOpen && <button className="sidebar-backdrop" aria-label="Close navigation" tabIndex={-1} onClick={closeMobile} />}
       <aside id="main-navigation" ref={sidebar} className="sidebar" aria-label="Main navigation" onClick={e => { if (e.target instanceof Element && e.target.closest("a")) closeMobile(); }}>
-        <div className="brand"><img className="sidebar-logo" src={logo} alt={isPlatformConsole ? "FII" : branding.data?.name || "FII"} onError={() => { if (tenantLogo) setFailedLogo(tenantLogo); }} /><span className="sidebar-brand-name">{isPlatformConsole ? "FII Platform" : branding.data?.name || "FII Billing"}</span><button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={closeMobile}>×</button></div>
+        <div className="brand"><img className="sidebar-logo" src={logo} alt={isPlatformConsole ? APP_NAME : branding.data?.name || APP_NAME} onError={() => { if (tenantLogo) setFailedLogo(tenantLogo); }} /><span className="sidebar-brand-name">{isPlatformConsole ? APP_NAME : branding.data?.name || APP_NAME}</span><button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={closeMobile}>×</button></div>
         {NAV.map((entry) =>
           isGroup(entry) ? (
             <NavGroupView
@@ -198,7 +199,7 @@ export function Layout() {
       <div className="main">
         <header className="topbar">
           <div className="workspace-context"><span>{isPlatformConsole ? "Platform" : "Workspace"}</span><span className="context-divider" aria-hidden="true">/</span><strong>{currentPage}</strong></div>
-          <div className="mobile-nav-heading"><button type="button" ref={menuButton} className="mobile-nav-toggle" aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button><span className="mobile-brand">{isPlatformConsole ? "FII Platform" : "FII Billing"}</span></div>
+          <div className="mobile-nav-heading"><button type="button" ref={menuButton} className="mobile-nav-toggle" aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button><span className="mobile-brand">{APP_NAME}</span></div>
           <div className="who">
             <span data-theme-picker />
             <span className="user-avatar" aria-hidden="true">{user?.name?.trim().slice(0, 1).toUpperCase() || "U"}</span>

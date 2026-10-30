@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runInNewContext } from "node:vm";
 import { mobileHeaderLabels } from "../src/responsive-tables.js";
 import { pwaBuild, serviceWorkerSource } from "../src/pwa-build.js";
+import { APP_FULL_NAME, APP_TAGLINE } from "../src/brand.js";
 
 describe("mobile report labels", () => {
   it("keeps ordinary invoice field labels", () => {
@@ -31,6 +32,11 @@ describe("PWA privacy and lifecycle", () => {
       pwaBuild(mode).generateBundle.call({ emitFile: asset => { files[asset.fileName] = asset.source; } }, {}, { "assets/test.js": { fileName: "assets/test.js" } });
       const manifest = JSON.parse(files["manifest.webmanifest"]);
       expect(manifest.display).toBe("standalone"); expect(manifest.scope).toBe("/");
+      expect(manifest.id).toBe("/");
+      expect(manifest.name).toContain("FII VANIGA");
+      expect(manifest.description).toBe(APP_TAGLINE);
+      expect(manifest.icons.every((icon: { src: string }) => icon.src.startsWith(`/pwa/vaniga-${mode}-`))).toBe(true);
+      if (mode === "tenant") expect(manifest.name).toBe(APP_FULL_NAME);
       expect(manifest.icons.some((i: { sizes: string; purpose: string }) => i.sizes === "512x512" && i.purpose === "maskable")).toBe(true);
       expect(files["sw.js"]).toContain(`fii-${mode}-shell-`);
     }

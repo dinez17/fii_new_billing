@@ -1,3 +1,4 @@
+import { businessDashboard } from "./dashboard.js";
 import { Router } from "express";
 import { z } from "zod";
 import { notFound } from "@fii/common";
@@ -202,25 +203,8 @@ reportsRouter.get("/balance-sheet", authorize("report:read"), h(async (req, res)
   res.json(await computeBalanceSheet(req.auth!.tenantId, q.asOn));
 }));
 
-/** Dashboard KPIs. */
+/** Full business overview; all reads are scoped to the authenticated tenant. */
 reportsRouter.get("/dashboard", authorize("report:read"), h(async (req, res) => {
-  const tenantId = req.auth!.tenantId;
-  const now = new Date();
-  const todayFrom = dayStart(now), todayTo = dayEnd(now);
-  const monthFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [todayColl, mtdSales, outstanding, openComplaints, lowStock] = await Promise.all([
-    prisma.payment.aggregate({ where: { tenantId, status: "SUCCESS", paymentDate: { gte: todayFrom, lte: todayTo } }, _sum: { amount: true } }),
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: { gte: monthFrom, lte: todayTo } }, _sum: { grandTotal: true } }),
-    prisma.invoice.findMany({ where: { tenantId, status: { in: ["UNPAID", "PARTIAL"] } }, select: { grandTotal: true, amountPaid: true, creditedAmount: true } }),
-    prisma.complaint.count({ where: { tenantId, status: { notIn: ["RESOLVED", "CLOSED"] } } }),
-    prisma.product.count({ where: { tenantId, isActive: true, isService: false, stockQty: { lte: prisma.product.fields.reorderLevel } } }),
-  ]);
-  const outstandingTotal = Math.round(outstanding.reduce((s, i) => s + n(i.grandTotal) - n(i.amountPaid) - n(i.creditedAmount), 0) * 100) / 100;
-  res.json({
-    todayCollection: n(todayColl._sum.amount),
-    mtdSales: n(mtdSales._sum.grandTotal),
-    outstanding: outstandingTotal,
-    openComplaints,
-    lowStock,
-  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await businessDashboard(req.auth!.tenantId));
 }));

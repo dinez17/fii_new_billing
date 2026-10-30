@@ -1,3 +1,4 @@
+import { APP_NAME, APP_LOGO } from "../../../../../packages/browser/src/brand";
 import { useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api, errMessage } from "../../lib/api";
@@ -30,6 +31,7 @@ export function AccountRecoveryPage() {
   }
 
   return <div className="login-wrap"><form className="login-card" onSubmit={submit}>
+    <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
     <h1>{mode === "request" ? "Forgot password" : mode === "reset" ? "Reset password" : "Verify email"}</h1>
     {mode === "request" && <>
       <label>Company subdomain</label><input value={tenant} onChange={(e) => setTenant(e.target.value)} required />

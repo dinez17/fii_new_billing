@@ -55,6 +55,9 @@ export function CustomersPage() {
   const [ledgerFor, setLedgerFor] = useState<CustomerRow | null>(null);
   const [error, setError] = useState("");
   const [cafFor, setCafFor] = useState("");
+  const [portalFor, setPortalFor] = useState<CustomerRow | null>(null);
+  const [portalPassword, setPortalPassword] = useState(""), [portalConfirm, setPortalConfirm] = useState("");
+  const [portalError, setPortalError] = useState(""), [portalBusy, setPortalBusy] = useState(false), [showPortalPassword, setShowPortalPassword] = useState(false);
 
   const ledger = useQuery({
     queryKey: ["ledger", ledgerFor?.id],
@@ -89,21 +92,34 @@ export function CustomersPage() {
   async function togglePortal(c: CustomerRow) {
     if (c.portalEnabled) {
       if (!confirm(`Disable portal access for ${c.name}?`)) return;
-      await api.post(`/customers/${c.id}/portal-access`, { enable: false });
+      try { await api.post(`/customers/${c.id}/portal-access`, { enable: false }); } catch (error) { alert(errMessage(error)); return; }
     } else {
-      const pw = c.portalUser
-        ? undefined
-        : prompt(`Set a portal password for ${c.name} (min 8 chars):`) ?? undefined;
-      if (!c.portalUser && !pw) return;
-      try {
-        await api.post(`/customers/${c.id}/portal-access`, { enable: true, password: pw });
-      } catch (err) { alert(errMessage(err)); return; }
+      setPortalFor(c); setPortalPassword(""); setPortalConfirm(""); setPortalError(""); setShowPortalPassword(false); return;
     }
     qc.invalidateQueries({ queryKey: ["customers"] });
   }
 
   return (
     <>
+      {portalFor && <div className="modal-overlay"><form className="modal" role="dialog" aria-modal="true" aria-label="Enable customer portal" onSubmit={async event => {
+        event.preventDefault(); setPortalError("");
+        if (portalPassword !== portalConfirm) { setPortalError("Passwords do not match"); return; }
+        if (portalPassword.length < 8 || new TextEncoder().encode(portalPassword).length > 72) { setPortalError("Use at least 8 characters and at most 72 UTF-8 bytes"); return; }
+        setPortalBusy(true);
+        try { await api.post(`/customers/${portalFor.id}/portal-access`, { enable: true, password: portalPassword }); setPortalPassword(""); setPortalConfirm(""); setPortalFor(null); await qc.invalidateQueries({ queryKey: ["customers"] }); }
+        catch (error) { setPortalError(errMessage(error)); } finally { setPortalBusy(false); }
+      }}>
+        <h3>Enable portal access</h3><p>{portalFor.name}</p>
+        <label>Portal login email<input value={portalFor.email || ""} readOnly aria-label="Portal login email" /></label>
+        {!portalFor.email && <p className="error">Edit the customer and save a primary email before enabling the portal.</p>}
+        {!portalFor.isActive && <p className="error">Reactivate this customer before enabling portal access.</p>}
+        <label>Portal password<input type={showPortalPassword ? "text" : "password"} aria-label="Portal password" autoComplete="new-password" autoFocus required minLength={8} maxLength={72} value={portalPassword} onChange={e => { setPortalPassword(e.target.value); setPortalError(""); }} /></label>
+        <label>Confirm portal password<input type={showPortalPassword ? "text" : "password"} aria-label="Confirm portal password" autoComplete="new-password" required minLength={8} maxLength={72} value={portalConfirm} onChange={e => { setPortalConfirm(e.target.value); setPortalError(""); }} /></label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}><input style={{ width: "auto" }} type="checkbox" checked={showPortalPassword} onChange={e => setShowPortalPassword(e.target.checked)} /> Show password</label>
+        <p className="document-help">{portalFor.portalUser ? "Re-enabling access replaces the previous password and revokes saved portal sign-ins." : "The customer signs in using this primary email and the password you choose."}</p>
+        {portalError && <div className="error" role="alert">{portalError}</div>}
+        <div className="actions"><button type="button" disabled={portalBusy} onClick={() => { setPortalFor(null); setPortalPassword(""); setPortalConfirm(""); }}>Cancel</button><button className="primary" disabled={portalBusy || !portalFor.email || !portalFor.isActive}>{portalBusy ? "Enabling…" : "Set password & enable"}</button></div>
+      </form></div>}
       <h2 className="page-title">Customers</h2>
       {error && !form && <div className="error">{error}</div>}
       <div className="toolbar">

@@ -47,7 +47,7 @@ export async function listCustomers(
   }
   return { items: ranked.items.flatMap((rank) => {
     const item = byId.get(rank.id);
-    return item ? [{ ...item, invoiceCount: rank.invoiceCount,
+      return item ? [{ ...item, portalEnabled: item.portalEnabled && item.portalUser?.status === "ACTIVE", invoiceCount: rank.invoiceCount,
       currentOutstanding: rank.outstanding.toFixed(2),
       ledgerOutstanding: rank.ledgerOutstanding.toFixed(2),
       heldInvoiceCount: heldByParty.get(item.id) ?? 0,
@@ -64,7 +64,7 @@ export async function getCustomer(tenantId: string, id: string) {
     },
   });
   if (!customer) throw notFound("Customer");
-  return customer;
+  return { ...customer, portalEnabled: customer.portalEnabled && customer.portalUser?.status === "ACTIVE" };
 }
 
 export async function createCustomer(tenantId: string, input: CustomerInput) {
@@ -78,7 +78,7 @@ export async function createCustomer(tenantId: string, input: CustomerInput) {
       if (customerCount >= tenant.maxCustomers) throw conflict(`Customer license limit reached (${tenant.maxCustomers})`);
       const code = await allocateNumber(tx, tenantId, "CUSTOMER");
       return tx.customer.create({
-        data: { ...input, openingBalance: new Prisma.Decimal(input.openingBalance), tenantId, code },
+        data: { ...input, portalEnabled: false, openingBalance: new Prisma.Decimal(input.openingBalance), tenantId, code },
       });
     });
   } catch (err) {
@@ -123,54 +123,33 @@ export async function updateCustomer(tenantId: string, id: string, input: Partia
   }
 }
 
-/** Enable/disable customer portal login. Creates the portal User on first enable. */
-export async function setPortalAccess(
-  tenantId: string,
-  id: string,
-  enable: boolean,
-  password?: string,
-) {
-  const customer = await prisma.customer.findFirst({ where: { id, tenantId }, include: { portalUser: true } });
-  if (!customer) throw notFound("Customer");
-
-  if (!enable) {
-    await prisma.customer.update({ where: { id }, data: { portalEnabled: false } });
-    if (customer.portalUser) {
-      await prisma.user.update({ where: { id: customer.portalUser.id }, data: { status: "INACTIVE" } });
-      await prisma.refreshToken.updateMany({
-        where: { userId: customer.portalUser.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    }
-    return { enabled: false };
-  }
-
-  if (!customer.email) throw badRequest("Customer needs an email address for portal access");
-
-  if (customer.portalUser) {
-    await prisma.user.update({
-      where: { id: customer.portalUser.id },
-      data: {
-        status: "ACTIVE",
-        ...(password ? { passwordHash: await bcrypt.hash(password, 12) } : {}),
-      },
+/** Every enablement sets a chosen password; account and access flags change atomically. */
+export async function setPortalAccess(tenantId: string, id: string, enable: boolean, password?: string, actorId?: string) {
+  if (enable && (!password || password.length < 8 || Buffer.byteLength(password, "utf8") > 72)) throw badRequest("Set a portal password of at least 8 characters and at most 72 UTF-8 bytes");
+  const passwordHash = enable ? await bcrypt.hash(password!, 12) : undefined;
+  try {
+    return await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Customer" WHERE id = ${id} AND "tenantId" = ${tenantId} FOR UPDATE`;
+      const customer = await tx.customer.findFirst({ where: { id, tenantId }, include: { portalUser: true } });
+      if (!customer) throw notFound("Customer");
+      if (enable && !customer.email) throw badRequest("Set the customer's primary email before enabling portal access");
+      if (enable && !customer.isActive) throw badRequest("Reactivate the customer before enabling portal access");
+      if (customer.portalUser && customer.portalUser.userType !== "CUSTOMER") throw badRequest("Invalid customer portal account");
+      if (customer.portalUser) {
+        await tx.user.update({ where: { id: customer.portalUser.id }, data: enable
+          ? { status: "ACTIVE", passwordHash, email: customer.email!, name: customer.name, failedLogins: 0, lockoutUntil: null }
+          : { status: "INACTIVE" } });
+        await tx.refreshToken.updateMany({ where: { userId: customer.portalUser.id, revokedAt: null }, data: { revokedAt: new Date() } });
+      } else if (enable) {
+        const role = await tx.role.findFirst({ where: { tenantId: null, code: "CUSTOMER" } });
+        await tx.user.create({ data: { tenantId, userType: "CUSTOMER", customerId: customer.id, name: customer.name, email: customer.email!, phone: customer.phone, passwordHash: passwordHash!, ...(role ? { roles: { create: { roleId: role.id } } } : {}) } });
+      }
+      await tx.customer.update({ where: { id }, data: { portalEnabled: enable } });
+      if (actorId) await tx.auditLog.create({ data: { tenantId, userId: actorId, action: enable ? "CUSTOMER_PORTAL_ENABLED" : "CUSTOMER_PORTAL_DISABLED", entity: "Customer", entityId: id, after: { enabled: enable, passwordChanged: enable } } });
+      return { enabled: enable };
     });
-  } else {
-    if (!password) throw badRequest("Password required to create portal access");
-    const customerRole = await prisma.role.findFirst({ where: { tenantId: null, code: "CUSTOMER" } });
-    await prisma.user.create({
-      data: {
-        tenantId,
-        userType: "CUSTOMER",
-        name: customer.name,
-        email: customer.email,
-        phone: customer.phone,
-        passwordHash: await bcrypt.hash(password, 12),
-        customerId: customer.id,
-        ...(customerRole ? { roles: { create: { roleId: customerRole.id } } } : {}),
-      },
-    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw conflict("That primary email is already used by another account in this tenant");
+    throw error;
   }
-  await prisma.customer.update({ where: { id }, data: { portalEnabled: true } });
-  return { enabled: true };
 }

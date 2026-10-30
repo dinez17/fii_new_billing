@@ -1,4 +1,5 @@
 /* Shared FII visual system. Local system fonts keep the UI fast and private. */
+@font-face { font-family: "Inter"; src: url("/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
 :root {
   --accent: #087f8c;
   --accent-600: #066975;
@@ -21,6 +22,7 @@
 :root { --app-font: Arial, Helvetica, sans-serif; }
 :root[data-font="modern"] { --app-font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
 :root[data-font="clean"] { --app-font: Arial, Helvetica, sans-serif; }
+:root[data-font="inter"] { --app-font: "Inter", Arial, sans-serif; }
 :root[data-font="aptos"] { --app-font: Aptos, "Segoe UI", Arial, sans-serif; }
 :root[data-font="calibri"] { --app-font: Calibri, Carlito, "Segoe UI", Arial, sans-serif; }
 :root[data-font="humanist"] { --app-font: "Trebuchet MS", "Segoe UI", sans-serif; }
@@ -164,7 +166,9 @@ td code { background: var(--accent-soft); color: var(--accent-600); }
 .sidebar .brand { gap: 10px; }
 .sidebar-logo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; background: white; padding: 4px; border-radius: 10px; border: 1px solid #dfe6ed; }
 .sidebar-brand-name { min-width: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
-.login-logo { display: block; width: 96px; height: 92px; object-fit: contain; margin: 0 auto 20px; background: white; border-radius: 10px; }
+.login-logo { display: block; width: 180px; max-width: 100%; height: 172px; object-fit: contain; margin: 0 auto 14px; background: white; border-radius: 10px; }
+.brand-tagline { display: block; font-size: 12px; line-height: 1.5; margin-bottom: 10px; color: var(--muted); }
+.login-card h1 { text-align: center; }
 .appearance-picker { position: relative; font-size: 12px; }
 .appearance-picker summary { list-style: none; cursor: pointer; padding: 7px 10px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); background: var(--card); white-space: nowrap; }
 .appearance-picker summary::-webkit-details-marker { display: none; }
@@ -200,3 +204,55 @@ td code { background: var(--accent-soft); color: var(--accent-600); }
 .document-preview { width: min(1000px, 100%); }
 .document-preview iframe { width: 100%; height: 65vh; border: 1px solid var(--border); }
 @media screen and (max-width: 800px) { .document-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Studio: restrained neutral surfaces, real typography and clear visual hierarchy. */
+:root[data-theme="studio"] { --accent: #3b5ccc; --accent-600: #2e49a8; --accent-soft: #eef2fc; --bg: #f7f8fb; --text: #263246; --muted: #637087; --border: #e5e9f0; --border-strong: #d5dce7; --hover: #f6f8fd; --hover-border: #c5cfe5; --radius: 10px; --radius-sm: 7px; --shadow: none; --shadow-sm: none; --nav-bg: #fff; --nav-text: #68758a; --nav-active: #eef2fc; --nav-active-text: #3455bd; }
+[data-theme="studio"] body { font-size: 13px; }
+[data-theme="studio"] .sidebar { width: 228px; padding: 16px 14px; border-color: #e5e9f0; }
+[data-theme="studio"] .sidebar .brand { padding: 7px 8px 22px; margin-bottom: 15px; }
+[data-theme="studio"] .sidebar-logo { width: 40px; height: 40px; padding: 2px; border-radius: 8px; }
+[data-theme="studio"] .sidebar-brand-name { font-size: 12px; font-weight: 620; }
+[data-theme="studio"] .sidebar a { font-size: 12px; font-weight: 450; padding: 9px 12px; border-radius: 7px; }
+[data-theme="studio"] .sidebar a.active { font-weight: 600; }
+[data-theme="studio"] .sidebar a.active::before { display: none; }
+[data-theme="studio"] .sidebar .nav-group-header { font-size: 9px; font-weight: 600; letter-spacing: .09em; margin-top: 18px; }
+[data-theme="studio"] .sidebar .nav-group-items { margin-left: 7px; border-left: 0; padding-left: 0; }
+[data-theme="studio"] .main > .topbar { min-height: 66px; background: #fff; }
+[data-theme="studio"] :is(.card,table,.toolbar,.kpi) { border-radius: 10px; box-shadow: none; }
+[data-theme="studio"] .toolbar { background: white; padding: 12px; }
+[data-theme="studio"] h2.page-title { font-size: 24px; font-weight: 620; }
+[data-theme="studio"] th { font-size: 10px; text-transform: none; font-weight: 550; letter-spacing: 0; background: #fafbfd; color: #738095; }
+[data-theme="studio"] td { padding-top: 10px; padding-bottom: 10px; }
+[data-theme="studio"] button { font-weight: 500; box-shadow: none; }
+[data-theme="studio"] button.primary { box-shadow: none; }
+[data-theme="studio"] .badge { font-size: 10px; font-weight: 550; }
+[data-theme="studio"] .badge::before { width: 4px; height: 4px; }
+[data-theme="studio"] .user-avatar { border: 0; background: #eef2fc; color: #4c65b0; }
+[data-theme="studio"] .workspace-context { font-size: 11px; }
+[data-theme="studio"] .topbar .who { font-size: 11px; }
+[data-theme="studio"] .appearance-picker summary { font-size: 11px; border-color: #e2e7ee; }
+@media(max-width:1024px) { [data-theme="studio"] .sidebar { width: min(300px,86vw); } }
+
+/* Larger Studio navigation, retaining the selected Inter typeface. */
+[data-theme="studio"] .sidebar-brand-name { font-size: 14px; }
+[data-theme="studio"] .sidebar a { font-size: 14px; }
+[data-theme="studio"] .sidebar .nav-group-header { font-size: 11px; }
+[data-theme="studio"] .workspace-context,
+[data-theme="studio"] .topbar .who,
+[data-theme="studio"] .appearance-picker summary,
+[data-theme="studio"] .topbar button { font-size: 13px; }
+
+/* Fixed Studio appearance and distinct navigation interaction colours. */
+[data-theme-picker] { display: none !important; }
+[data-theme="studio"] .sidebar a,
+[data-theme="studio"] .sidebar .nav-group-header { transition: background-color .15s ease, color .15s ease; }
+[data-theme="studio"] .sidebar a:hover,
+[data-theme="studio"] .sidebar .nav-group-header:hover,
+[data-theme="studio"] .sidebar a:focus-visible,
+[data-theme="studio"] .sidebar .nav-group-header:focus-visible { background: #e0f2fe; color: #075985; }
+[data-theme="studio"] .sidebar a.active:hover,
+[data-theme="studio"] .sidebar a.active:focus-visible { background: #dbeafe; color: #1e40af; }
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="studio"] .sidebar a,
+  [data-theme="studio"] .sidebar .nav-group-header { transition: none; }
+}

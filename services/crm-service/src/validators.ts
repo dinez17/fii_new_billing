@@ -33,8 +33,8 @@ export const customerBody = z.object({
 
 export const portalAccessBody = z.object({
   enable: z.boolean(),
-  password: z.string().min(8).max(72).optional(),
-});
+  password: z.string().min(8).max(72).refine(value => Buffer.byteLength(value, "utf8") <= 72, "Password must fit within 72 UTF-8 bytes").optional(),
+}).refine(value => !value.enable || !!value.password, { path: ["password"], message: "Set the portal password when enabling access" });
 
 export const planBody = z.object({
   name: z.string().min(2).max(120),

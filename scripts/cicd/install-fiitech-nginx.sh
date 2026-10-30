@@ -10,11 +10,11 @@ link=/etc/nginx/sites-enabled/fii-billing
 if [[ "$mode" == https ]]; then
   [[ -f "$shared/final-cutover.flag" ]] || { echo 'Final data cutover must complete before certificate setup.' >&2; exit 2; }
   install -d -o dinez17 -g dinez17 -m 755 /var/lib/fii-billing-public
-  for domain in sales.fiitech.in customer.fiitech.in platform.fiitech.in; do
+  for domain in vaniga.fiitech.in sales.fiitech.in customer.fiitech.in platform.fiitech.in; do
     getent ahostsv4 "$domain" | awk '{print $1}' | grep -qx '202.61.120.82' || { echo "Update the A record for $domain to 202.61.120.82 first." >&2; exit 2; }
   done
   certbot certonly --webroot -w /var/www/fii-billing-acme --cert-name fii-billing-prod \
-    -d sales.fiitech.in -d customer.fiitech.in -d platform.fiitech.in \
+    --expand -d vaniga.fiitech.in -d sales.fiitech.in -d customer.fiitech.in -d platform.fiitech.in \
     --non-interactive --agree-tos --register-unsafely-without-email \
     --deploy-hook 'nginx -t && systemctl reload nginx'
   config="$shared/fiitech.nginx.https.conf"

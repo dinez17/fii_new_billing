@@ -75,7 +75,7 @@ customersRouter.put("/:id", authorize("customer:update"), h(async (req, res) => 
 }));
 customersRouter.post("/:id/portal-access", authorize("customer:update"), h(async (req, res) => {
   const b = parse(portalAccessBody, req.body);
-  res.json(await customers.setPortalAccess(req.auth!.tenantId, req.params.id, b.enable, b.password));
+  res.json(await customers.setPortalAccess(req.auth!.tenantId, req.params.id, b.enable, b.password, req.auth!.sub));
 }));
 customersRouter.get("/:id/ledger", authorize("ledger:read"), h(async (req, res) => {
   const tenantId = req.auth!.tenantId;

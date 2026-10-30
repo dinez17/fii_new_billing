@@ -32,7 +32,7 @@ export async function requestPasswordReset(email: string, tenantSubdomain: strin
   if (!user) return;
   const raw = await createAccountToken(user.id, "PASSWORD_RESET", 30);
   const base = process.env.APP_PUBLIC_URL ?? "http://localhost:8000";
-  await deliver(user.email, "Reset your FII Billing password", `Reset your password within 30 minutes: ${base}/reset-password?token=${encodeURIComponent(raw)}`);
+  await deliver(user.email, "Reset your FII VANIGA password", `Reset your password within 30 minutes: ${base}/reset-password?token=${encodeURIComponent(raw)}`);
   await audit({ tenantId: user.tenantId, userId: user.id, action: "PASSWORD_RESET_REQUESTED" });
 }
 
@@ -52,7 +52,7 @@ export async function requestEmailVerification(userId: string): Promise<void> {
   if (user.emailVerifiedAt) return;
   const raw = await createAccountToken(user.id, "EMAIL_VERIFY", 24 * 60);
   const base = process.env.APP_PUBLIC_URL ?? "http://localhost:8000";
-  await deliver(user.email, "Verify your FII Billing email", `Verify your email within 24 hours: ${base}/verify-email?token=${encodeURIComponent(raw)}`);
+  await deliver(user.email, "Verify your FII VANIGA email", `Verify your email within 24 hours: ${base}/verify-email?token=${encodeURIComponent(raw)}`);
 }
 
 export async function verifyEmail(token: string): Promise<void> {

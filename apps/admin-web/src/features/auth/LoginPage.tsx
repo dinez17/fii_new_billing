@@ -1,3 +1,4 @@
+import { APP_NAME, APP_LOGO, APP_TAGLINE } from "../../../../../packages/browser/src/brand";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
@@ -43,9 +44,9 @@ export function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={onSubmit}>
-        <img className="login-logo" src="/brand/fii-logo.png" alt="First Idea Infotech" />
-        <h1>{isPlatformConsole ? "FII Platform" : "FII Billing"}</h1>
-        <p>{isPlatformConsole ? "Superadmin sign in · Tenant and license management" : "Sign in to the tenant admin console"}</p>
+        <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
+        <h1>{APP_NAME}</h1>
+        <p><span className="brand-tagline">{APP_TAGLINE}</span>{isPlatformConsole ? "Superadmin sign in · Tenant and license management" : "Sign in to the tenant admin console"}</p>
         <label>Email</label>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
         <label>Password</label>
