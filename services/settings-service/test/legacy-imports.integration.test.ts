@@ -9,12 +9,14 @@ const d = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.ski
 d("legacy archive API tenant boundaries", () => {
   let server: Server, base = "", token = "", foreign = "", recordId = "";
   const tenantIds: string[] = [];
+  const userIds: string[] = [];
   beforeAll(async () => {
     vi.stubEnv("JWT_PRIVATE_KEY_PATH", "keys/jwt-private.pem"); vi.stubEnv("JWT_PUBLIC_KEY_PATH", "keys/jwt-public.pem");
     const stamp = Date.now();
     for (const suffix of ["a", "b"]) tenantIds.push((await prisma.tenant.create({ data: { name: "Legacy API Test", subdomain: `legacy-api-${stamp}-${suffix}` } })).id);
     const role = await prisma.role.findFirstOrThrow({ where: { code: "ADMIN", tenantId: null } });
-    const claims = (tenantId: string) => ({ sub: "archive-test", tenantId, userType: "STAFF" as const, roleIds: [role.id], permVersion: 1 });
+    for (const tenantId of tenantIds) userIds.push((await prisma.user.create({ data: { tenantId, name: "Archive API fixture", email: "archive@example.test", passwordHash: "integration-fixture", status: "ACTIVE" } })).id);
+    const claims = (tenantId: string) => ({ sub: userIds[tenantIds.indexOf(tenantId)], tenantId, userType: "STAFF" as const, roleIds: [role.id], permVersion: 1 });
     token = signAccessToken(claims(tenantIds[0])); foreign = signAccessToken(claims(tenantIds[1]));
     recordId = `legacy-api-record-${stamp}`;
     await prisma.legacyRecord.create({ data: { id: recordId, tenantId: tenantIds[0], sourceHash: "test", sourceTable: "user_bills", sourceId: "123", status: "REVIEW", reason: "Receipt mismatch", data: { billno: "TEST-123", billtotamt: "100.00" } } });
@@ -25,7 +27,7 @@ d("legacy archive API tenant boundaries", () => {
   });
   afterAll(async () => {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
-    await prisma.legacyRecord.deleteMany({ where: { tenantId: { in: tenantIds } } }); await prisma.tenant.deleteMany({ where: { id: { in: tenantIds } } }); await prisma.$disconnect(); vi.unstubAllEnvs();
+    await prisma.legacyRecord.deleteMany({ where: { tenantId: { in: tenantIds } } }); await prisma.user.deleteMany({ where: { tenantId: { in: tenantIds } } }); await prisma.tenant.deleteMany({ where: { id: { in: tenantIds } } }); await prisma.$disconnect(); vi.unstubAllEnvs();
   });
   it("provides own summary/list/detail without caching and never leaks another tenant", async () => {
     const own = await fetch(`${base}/records?status=REVIEW`, { headers: { authorization: `Bearer ${token}` } });
@@ -36,7 +38,7 @@ d("legacy archive API tenant boundaries", () => {
   });
   it("requires authentication/backup permission and rejects invalid filters", async () => {
     expect((await fetch(`${base}/summary`)).status).toBe(401);
-    const noPerm = signAccessToken({ sub: "denied", tenantId: tenantIds[0], userType: "STAFF", roleIds: [], permVersion: 1 });
+    const noPerm = signAccessToken({ sub: userIds[0], tenantId: tenantIds[0], userType: "STAFF", roleIds: [], permVersion: 1 });
     expect((await fetch(`${base}/records`, { headers: { authorization: `Bearer ${noPerm}` } })).status).toBe(403);
     expect((await fetch(`${base}/records?page=-1`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(400);
   });
