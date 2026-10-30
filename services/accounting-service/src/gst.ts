@@ -21,7 +21,7 @@ gstRouter.get("/gstr1", authorize("gst_report:read"), h(async (req, res) => {
   const dateIn = rangeWhere(q.from, q.to);
 
   const invoices = await prisma.invoice.findMany({
-    where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: dateIn },
+    where: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: dateIn },
     select: {
       id: true, invoiceNumber: true, invoiceDate: true, placeOfSupply: true, gstTreatment: true,
       taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true,
@@ -51,18 +51,18 @@ gstRouter.get("/gstr1", authorize("gst_report:read"), h(async (req, res) => {
   // CDNR — credit & debit notes whose invoice customer is registered
   const [creditNotes, debitNotes] = await Promise.all([
     prisma.creditNote.findMany({
-      where: { tenantId, status: { not: "CANCELLED" }, noteDate: dateIn, invoice: { customer: { gstin: { not: null } } } },
+      where: { tenantId, status: { not: "CANCELLED" }, noteDate: dateIn, invoice: { tenantId, chargeGst: true, customer: { gstin: { not: null } } } },
       select: { noteNumber: true, noteDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, total: true, invoice: { select: { invoiceNumber: true, customer: { select: { gstin: true, name: true } } } } },
     }),
     prisma.debitNote.findMany({
-      where: { tenantId, status: { not: "CANCELLED" }, noteDate: dateIn, invoice: { customer: { gstin: { not: null } } } },
+      where: { tenantId, status: { not: "CANCELLED" }, noteDate: dateIn, invoice: { tenantId, chargeGst: true, customer: { gstin: { not: null } } } },
       select: { noteNumber: true, noteDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, total: true, invoice: { select: { invoiceNumber: true, customer: { select: { gstin: true, name: true } } } } },
     }),
   ]);
 
   // HSN summary — from invoice line items in range
   const items = await prisma.invoiceItem.findMany({
-    where: { invoice: { tenantId, status: { not: "CANCELLED" }, invoiceDate: dateIn } },
+    where: { invoice: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: dateIn } },
     select: { hsnSac: true, quantity: true, gstRate: true, taxableValue: true, cgst: true, sgst: true, igst: true },
   });
   const hsnMap = new Map<string, { hsnSac: string; gstRate: number; quantity: number; taxableValue: number; cgst: number; sgst: number; igst: number }>();
@@ -117,9 +117,9 @@ gstRouter.get("/gstr3b", authorize("gst_report:read"), h(async (req, res) => {
   const inv = { gte: from, lte: to };
 
   const [sales, creditNotes, debitNotes, purchases, expenseGst] = await Promise.all([
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
-    prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
-    prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
+    prisma.creditNote.aggregate({ where: { tenantId, invoice: { tenantId, chargeGst: true }, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
+    prisma.debitNote.aggregate({ where: { tenantId, invoice: { tenantId, chargeGst: true }, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
     prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.expense.aggregate({ where: { tenantId, status: "RECORDED", expenseDate: inv, isInterState: false }, _sum: { gstAmount: true } }),
   ]);

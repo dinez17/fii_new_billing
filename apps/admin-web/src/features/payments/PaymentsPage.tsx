@@ -1,3 +1,4 @@
+import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
@@ -96,9 +97,7 @@ export function PaymentsPage() {
     if (!p.receipt) return;
     try {
       const { data } = await api.get(`/receipts/${p.receipt.id}/pdf`, { responseType: "blob" });
-      const url = URL.createObjectURL(data);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await downloadPdf(data, p.receipt.receiptNumber);
     } catch (err) { alert(errMessage(err)); }
   }
 

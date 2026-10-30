@@ -1,17 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import axios from "axios";
 import { useAuth } from "../stores/auth";
+import { restoreSession as restoreConsoleSession } from "../lib/restore-session";
 
 let restoration: Promise<void> | null = null;
 function restoreSession(): Promise<void> {
   restoration ??= (async () => {
     try {
-      const { data } = await axios.post("/api/v1/auth/refresh", {}, { withCredentials: true });
-      const { data: profile } = await axios.get("/api/v1/auth/me", {
-        headers: { Authorization: `Bearer ${data.accessToken}` }, withCredentials: true,
-      });
-      useAuth.getState().setSession({ user: profile, permissions: profile.permissions, accessToken: data.accessToken });
+      await restoreConsoleSession();
     } catch {
       useAuth.getState().logout();
     }

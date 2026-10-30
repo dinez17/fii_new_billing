@@ -13,6 +13,7 @@ export const lineItem = z.object({
 });
 
 export const invoiceCreateBody = z.object({
+  chargeGst: z.boolean().optional(),
   poNumber: z.string().trim().max(100).nullable().optional(),
   customerId: z.string().uuid(),
   subscriberId: z.string().uuid().optional(),
@@ -24,6 +25,7 @@ export const invoiceCreateBody = z.object({
 }).refine((b) => b.dueDate >= b.invoiceDate, { message: "dueDate must be on/after invoiceDate" });
 
 export const invoiceUpdateBody = z.object({
+  chargeGst: z.boolean().optional(),
   customerId: z.string().uuid().optional(),
   subscriberId: z.string().uuid().nullable().optional(),
   invoiceDate: z.coerce.date().optional(),
@@ -37,6 +39,7 @@ export const invoiceUpdateBody = z.object({
 export const cancelBody = z.object({ reason: z.string().min(3).max(300) });
 
 export const invoiceListQuery = z.object({
+  taxMode: z.enum(["GST", "WITHOUT_GST"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),

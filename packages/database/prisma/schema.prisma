@@ -211,6 +211,7 @@ enum NotificationStatus {
 
 enum DocType {
   INVOICE
+  NON_GST_INVOICE
   RECEIPT
   CREDIT_NOTE
   DEBIT_NOTE
@@ -550,6 +551,7 @@ model Subscriber {
   code           String // subscriber/connection number
   poNumber       String?
   subscriberType SubscriberType
+  chargeGst      Boolean          @default(true)
   billingCycleMonths Int          @default(1) // 1=monthly, 3=quarterly, 6=half-yearly, 12=annual
   status         SubscriberStatus @default(ACTIVE)
   activationDate DateTime
@@ -576,6 +578,7 @@ model SubscriberPlan {
   startDate    DateTime
   endDate      DateTime? // null = current
   priceOverride Decimal? @db.Decimal(14, 2)
+  location     String? // independent connection/location for repeated plans
   createdAt    DateTime  @default(now())
 
   @@index([tenantId, subscriberId, endDate])
@@ -615,6 +618,7 @@ model BillingRun {
   id          String           @id @default(uuid())
   tenantId    String
   cycleType   SubscriberType
+  taxMode     String           @default("ALL") // ALL | GST | WITHOUT_GST
   periodStart DateTime
   periodEnd   DateTime
   status      BillingRunStatus @default(PENDING)
@@ -627,7 +631,7 @@ model BillingRun {
 
   items BillingRunItem[]
 
-  @@unique([tenantId, cycleType, periodStart]) // duplicate run prevention
+  @@unique([tenantId, cycleType, periodStart, taxMode]) // separate tax-mode histories
 }
 
 model BillingRunItem {
@@ -660,6 +664,7 @@ model Invoice {
   dueDate       DateTime
   placeOfSupply String // state code
   gstTreatment  GstTreatment  @default(B2C)
+  chargeGst     Boolean       @default(true)
   isInterState  Boolean       @default(false)
   subTotal      Decimal       @db.Decimal(14, 2)
   discountTotal Decimal       @default(0) @db.Decimal(14, 2)

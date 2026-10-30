@@ -29,7 +29,7 @@ export async function allocateNumber(
           tenantId,
           docType,
           fyCode,
-          prefix: DEFAULT_PREFIX[docType] ?? `${docType.slice(0, 3)}/${fyCode}/`,
+          prefix: DEFAULT_PREFIX[docType] ?? `${docType === "NON_GST_INVOICE" ? "NG" : docType.slice(0, 3)}/${fyCode}/`,
         },
       });
     } catch {

@@ -1,4 +1,5 @@
 import { formatDate } from "../../lib/date";
+import { downloadPdf as savePdf } from "../../lib/pdf-download";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize, ListTable } from "../../components/ListPagination";
 import { useState } from "react";
@@ -8,6 +9,7 @@ import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
 
 interface InvoiceRow {
+  chargeGst: boolean;
   id: string; invoiceNumber: string; invoiceDate: string; dueDate: string;
   grandTotal: string; amountPaid: string; balance: string; status: string; isInterState: boolean;
   poNumber?: string | null;
@@ -31,6 +33,7 @@ export function InvoicesPage() {
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("OUTSTANDING");
+  const [taxMode, setTaxMode] = useState("GST");
   const [fySelection, setFyCode] = useState<string | null>(null);
   const [fromSelection, setFrom] = useState<string | null>(null);
   const [to, setTo] = useState(() => {
@@ -50,13 +53,14 @@ export function InvoicesPage() {
   const from = fromSelection ?? selectedFy?.startDate.slice(0, 10) ?? "";
 
   const list = useQuery({
-    queryKey: ["invoices", page, search, status, fyCode, from, to, pageSize],
+    queryKey: ["invoices", page, search, status, fyCode, from, to, pageSize, taxMode],
     enabled: !hasPerm("financial_year:read") || fys.isSuccess,
     queryFn: async () => (await api.get("/invoices", {
       params: {
         page, limit: pageSize,
         search: search || undefined,
         status: status || undefined,
+        taxMode: taxMode || undefined,
         fyCode: fyCode || undefined,
         from: from || undefined,
         to: to || undefined,
@@ -73,9 +77,7 @@ export function InvoicesPage() {
   async function downloadPdf(inv: { id: string; invoiceNumber: string }) {
     try {
       const { data } = await api.get(`/invoices/${inv.id}/pdf`, { responseType: "blob" });
-      const url = URL.createObjectURL(data);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await savePdf(data, inv.invoiceNumber);
     } catch (err) { alert(errMessage(err)); }
   }
 
@@ -113,6 +115,9 @@ export function InvoicesPage() {
       <h2 className="page-title">Invoices</h2>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
+        <select aria-label="Invoice register" value={taxMode} onChange={(e) => { setTaxMode(e.target.value); setPage(1); }}>
+          <option value="GST">GST invoices</option><option value="WITHOUT_GST">Without GST invoices</option><option value="">All invoices</option>
+        </select>
         <input style={{ width: 200 }} placeholder="Search number / customer…" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         <select aria-label="Invoice status" style={{ width: 180 }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
@@ -131,7 +136,7 @@ export function InvoicesPage() {
         <input type="date" title="To date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />
         <div className="spacer" />
         {hasPerm("invoice:create") && (
-          <button className="primary" onClick={() => navigate("/invoices/new")}>+ New Invoice</button>
+          <button className="primary" onClick={() => navigate("/invoices/new", { state: { chargeGst: taxMode !== "WITHOUT_GST" } })}>+ New Invoice</button>
         )}
       </div>
       {fys.isError && <div className="error">{errMessage(fys.error)}</div>}
@@ -144,7 +149,7 @@ export function InvoicesPage() {
         <tbody>
           {list.data?.items.map((inv) => (
             <tr key={inv.id}>
-              <td><code>{inv.invoiceNumber}</code>{inv.poNumber && <div title={inv.poNumber} style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>PO: {inv.poNumber}</div>}</td>
+              <td><code>{inv.invoiceNumber}</code><div><span className="badge">{inv.chargeGst ? "GST" : "Without GST"}</span></div>{inv.poNumber && <div title={inv.poNumber} style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>PO: {inv.poNumber}</div>}</td>
               <td>{formatDate(inv.invoiceDate)}</td>
               <td>{inv.customer.name}</td>
               <td style={{ textAlign: "right", fontWeight: 600 }}>{inr(inv.grandTotal)}</td>

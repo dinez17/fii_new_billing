@@ -69,8 +69,16 @@ export async function createUser(tenantId: string, actorId: string, input: Upser
 
 export async function updateUser(tenantId: string, actorId: string, id: string, input: Partial<UpsertUserInput>) {
   const db = forTenant(prisma, tenantId);
-  const before = await db.user.findFirst({ where: { id }, include: { roles: true } });
+  const before = await db.user.findFirst({ where: { id, userType: "STAFF" }, include: { roles: true } });
   if (!before) throw notFound("User");
+  if (id === actorId && input.status && input.status !== "ACTIVE") throw conflict("You cannot disable your own account");
+  if (id === actorId && input.roleIds && [...new Set(input.roleIds)].sort().join() !== before.roles.map((r) => r.roleId).sort().join()) {
+    throw conflict("Ask another administrator to change your roles");
+  }
+  if (input.email && input.email !== before.email) {
+    const exists = await prisma.user.findUnique({ where: { tenantId_email: { tenantId, email: input.email } } });
+    if (exists) throw conflict("Email already in use");
+  }
   if (input.roleIds) await assertAssignableRoles(tenantId, input.roleIds);
 
   await prisma.$transaction(async (tx) => {
@@ -78,6 +86,8 @@ export async function updateUser(tenantId: string, actorId: string, id: string, 
       where: { id },
       data: {
         name: input.name,
+        email: input.email,
+        ...(input.email && input.email !== before.email ? { emailVerifiedAt: null } : {}),
         phone: input.phone,
         status: input.status,
         ...(input.password ? { passwordHash: await bcrypt.hash(input.password, 12) } : {}),
@@ -87,20 +97,36 @@ export async function updateUser(tenantId: string, actorId: string, id: string, 
       await tx.userRole.deleteMany({ where: { userId: id } });
       await tx.userRole.createMany({ data: input.roleIds.map((roleId) => ({ userId: id, roleId })) });
     }
+    if (input.status !== undefined && input.status !== "ACTIVE" || input.password || input.email && input.email !== before.email) {
+      await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.accountToken.deleteMany({ where: { userId: id } });
+    }
   });
   await audit({ tenantId, userId: actorId, action: "USER_UPDATE", entity: "User", entityId: id, after: {
-    name: input.name, phone: input.phone, status: input.status, roleIds: input.roleIds,
+    name: input.name, email: input.email, phone: input.phone, status: input.status, roleIds: input.roleIds,
     passwordChanged: !!input.password,
   } });
 }
 
+export async function deleteUser(tenantId: string, actorId: string, id: string) {
+  if (id === actorId) throw conflict("You cannot delete your own account");
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findFirst({ where: { id, tenantId, userType: "STAFF" }, select: { id: true, name: true, email: true } });
+    if (!user) throw notFound("User");
+    // Preserve historical audit events when removing the login account.
+    await tx.auditLog.updateMany({ where: { userId: id }, data: { userId: null } });
+    await tx.user.delete({ where: { id } });
+    await tx.auditLog.create({ data: { tenantId, userId: actorId, action: "USER_DELETE", entity: "User", entityId: id, before: user } });
+  });
+}
+
 export async function resetUserPassword(tenantId: string, actorId: string, id: string, newPassword: string) {
   const db = forTenant(prisma, tenantId);
-  const user = await db.user.findFirst({ where: { id } });
+  const user = await db.user.findFirst({ where: { id, userType: "STAFF" } });
   if (!user) throw notFound("User");
   await prisma.user.update({
     where: { id },
-    data: { passwordHash: await bcrypt.hash(newPassword, 12), failedLogins: 0, status: "ACTIVE" },
+    data: { passwordHash: await bcrypt.hash(newPassword, 12), failedLogins: 0, lockoutUntil: null },
   });
   await prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
   await audit({ tenantId, userId: actorId, action: "USER_PASSWORD_RESET", entity: "User", entityId: id });

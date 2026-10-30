@@ -7,6 +7,7 @@ const DUE_DAYS = 10;
 const PAGE = 200;
 
 export interface RunSpec {
+  taxMode?: "ALL" | "GST" | "WITHOUT_GST";
   tenantId: string;
   cycleType: "PREPAID" | "POSTPAID";
   periodStart: Date;
@@ -52,17 +53,19 @@ function cycleSpan(
 
 /**
  * Generates one billing run. Idempotent and re-runnable:
- * - BillingRun is unique per (tenant, cycle, periodStart)
+ * - BillingRun is unique per (tenant, cycle, periodStart, taxMode)
  * - per subscriber, an existing SUBSCRIPTION invoice for the period is
  *   detected and counted as success (DB unique constraint is the backstop)
  * Re-triggering the same period only creates the invoices that are missing.
  */
 export async function processRun(spec: RunSpec): Promise<void> {
   const { tenantId, cycleType, periodStart, periodEnd } = spec;
+  const taxMode = spec.taxMode ?? "ALL";
+  if (!["ALL", "GST", "WITHOUT_GST"].includes(taxMode)) throw new Error("Invalid billing GST mode");
 
   const run = await prisma.billingRun.upsert({
-    where: { tenantId_cycleType_periodStart: { tenantId, cycleType, periodStart } },
-    create: { tenantId, cycleType, periodStart, periodEnd, status: "RUNNING", startedAt: new Date() },
+    where: { tenantId_cycleType_periodStart_taxMode: { tenantId, cycleType, periodStart, taxMode } },
+    create: { tenantId, cycleType, periodStart, periodEnd, taxMode, status: "RUNNING", startedAt: new Date() },
     update: { status: "RUNNING", startedAt: new Date(), finishedAt: null },
   });
   await prisma.billingRunItem.deleteMany({ where: { billingRunId: run.id } });
@@ -93,10 +96,11 @@ export async function processRun(spec: RunSpec): Promise<void> {
 
   for (;;) {
     const subscribers = await prisma.subscriber.findMany({
-      where: { tenantId, status: "ACTIVE", subscriberType: cycleType },
+      where: { tenantId, status: "ACTIVE", subscriberType: cycleType, ...(taxMode === "ALL" ? {} : { chargeGst: taxMode === "GST" }) },
       include: {
         customer: true,
-        plans: { where: { endDate: null }, include: { plan: true } },
+        plans: { where: { endDate: null, startDate: { lte: periodEnd } }, include: { plan: true } },
+        _count: { select: { plans: { where: { endDate: null } } } },
       },
       orderBy: { id: "asc" },
       take: PAGE,
@@ -106,9 +110,15 @@ export async function processRun(spec: RunSpec): Promise<void> {
     cursor = subscribers[subscribers.length - 1].id;
 
     for (const sub of subscribers) {
+      if (sub.plans.length === 0 && sub._count.plans > 0) continue; // all connections start in a later period
       // frequency check — quarterly/half-yearly/annual subscribers are only
       // due on their cycle boundary months; others are skipped silently
-      const span = cycleSpan(cycleType, sub.activationDate, sub.billingCycleMonths, periodStart, periodEnd);
+      // A saved connection can predate subscriber creation (historical billing).
+      // Use the same service start shown by the subscriber list.
+      const serviceStart = sub.plans.length
+        ? sub.plans.reduce((earliest, mapping) => mapping.startDate < earliest ? mapping.startDate : earliest, sub.plans[0].startDate)
+        : sub.activationDate;
+      const span = cycleSpan(cycleType, serviceStart, sub.billingCycleMonths, periodStart, periodEnd);
       if (!span) continue;
       const { spanStart, spanEnd } = span;
 
@@ -140,13 +150,13 @@ export async function processRun(spec: RunSpec): Promise<void> {
             quantity: cycleN,
             unitPrice: Number(m.priceOverride ?? m.plan.price),
             discount: 0,
-            gstRate: Number(m.plan.gstRate),
+            gstRate: sub.chargeGst ? Number(m.plan.gstRate) : 0,
           })),
           isInterState,
         );
 
         const invoiceId = await prisma.$transaction(async (tx) => {
-          const invoiceNumber = await allocateNumber(tx, tenantId, "INVOICE", fy.code);
+          const invoiceNumber = await allocateNumber(tx, tenantId, sub.chargeGst ? "INVOICE" : "NON_GST_INVOICE", fy.code);
           const invoice = await tx.invoice.create({
             data: {
               tenantId,
@@ -162,6 +172,7 @@ export async function processRun(spec: RunSpec): Promise<void> {
               dueDate,
               placeOfSupply,
               gstTreatment: sub.customer.gstTreatment,
+              chargeGst: sub.chargeGst,
               isInterState,
               subTotal: totals.subTotal,
               discountTotal: totals.discountTotal,
@@ -175,12 +186,12 @@ export async function processRun(spec: RunSpec): Promise<void> {
               terms: invoiceTerms,
               items: {
                 create: mappings.map((m, i) => ({
-                  description: `${m.plan.name} (${fmt(spanStart)} – ${fmt(spanEnd)})`,
+                  description: `${m.plan.name}\n${m.location ? `${m.location} · ` : ""}${fmt(spanStart)} – ${fmt(spanEnd)}`,
                   hsnSac: m.plan.hsnSac,
                   quantity: new Prisma.Decimal(cycleN),
                   unitPrice: new Prisma.Decimal(Number(m.priceOverride ?? m.plan.price)),
                   discount: new Prisma.Decimal(0),
-                  gstRate: m.plan.gstRate,
+                  gstRate: sub.chargeGst ? m.plan.gstRate : new Prisma.Decimal(0),
                   taxableValue: totals.lines[i].taxableValue,
                   cgst: totals.lines[i].cgst,
                   sgst: totals.lines[i].sgst,
@@ -199,6 +210,8 @@ export async function processRun(spec: RunSpec): Promise<void> {
                 invoiceId: invoice.id,
                 invoiceNumber,
                 customerId: sub.customerId,
+                invoiceDate: invoiceDate.toISOString(),
+                fyCode: fy.code,
                 grandTotal: totals.grandTotal,
                 dueDate: dueDate.toISOString(),
               }) as unknown as Prisma.InputJsonValue,

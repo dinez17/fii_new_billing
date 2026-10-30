@@ -179,9 +179,9 @@ async function gstr3b(tenantId: string, f: Filters): Promise<TableData> {
   const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
   const inv = { gte: from, lte: to };
   const [sales, cn, dn, pur, exp] = await Promise.all([
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
-    prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
-    prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true } }),
+    prisma.creditNote.aggregate({ where: { tenantId, invoice: { tenantId, chargeGst: true }, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
+    prisma.debitNote.aggregate({ where: { tenantId, invoice: { tenantId, chargeGst: true }, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: inv }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.expense.aggregate({ where: { tenantId, status: "RECORDED", expenseDate: inv }, _sum: { gstAmount: true } }),
   ]);
@@ -245,7 +245,7 @@ async function statement(tenantId: string, partyType: "CUSTOMER" | "SUPPLIER", f
 
 async function gstr1(tenantId: string, f: Filters): Promise<TableData> {
   const inv = await prisma.invoice.findMany({
-    where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range(f) },
+    where: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: range(f) },
     select: { invoiceNumber: true, invoiceDate: true, placeOfSupply: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, customer: { select: { name: true, gstin: true } } },
     orderBy: { invoiceDate: "asc" }, take: 5000,
   });

@@ -24,13 +24,20 @@ export async function rankParties(tenantId: string, type: "CUSTOMER" | "SUPPLIER
   const cte = Prisma.sql`WITH ranked AS (
     SELECT p.id, p.name, p.code, p."createdAt", p."isActive",
       COALESCE(i.count, 0)::int AS "invoiceCount",
-      ${customer ? Prisma.sql`COALESCE(i.due, 0)` : Prisma.sql`p."openingBalance" + ${credit} - ${debit}`} AS outstanding,
+      ${customer ? Prisma.sql`p."openingBalance" + COALESCE(i.due, 0) - COALESCE(u.credit, 0)` : Prisma.sql`p."openingBalance" + ${credit} - ${debit}`} AS outstanding,
       p."openingBalance" + ${customer ? debit : credit} - ${customer ? credit : debit} AS "ledgerOutstanding"
     FROM ${party} p
     LEFT JOIN (SELECT ${partyKey} AS id, COUNT(*) AS count, SUM(${remaining}) AS due FROM ${invoices}
       WHERE "tenantId" = ${tenantId}
       ${customer ? Prisma.sql`AND status <> 'CANCELLED' AND ${remaining} > 0` : Prisma.empty}
       GROUP BY ${partyKey}) i ON i.id = p.id
+    ${customer ? Prisma.sql`LEFT JOIN (
+      SELECT pay."customerId" AS id, SUM(pay.amount - COALESCE(a.allocated, 0)) AS credit
+      FROM "Payment" pay
+      LEFT JOIN (SELECT "paymentId", SUM(amount) AS allocated FROM "PaymentAllocation" GROUP BY "paymentId") a ON a."paymentId" = pay.id
+      WHERE pay."tenantId" = ${tenantId} AND pay.status = 'SUCCESS'
+      GROUP BY pay."customerId"
+    ) u ON u.id = p.id` : Prisma.empty}
     LEFT JOIN (SELECT "partyId", SUM(debit) AS debit, SUM(credit) AS credit FROM "LedgerEntry"
       WHERE "tenantId" = ${tenantId} AND "partyType"::text = ${type} GROUP BY "partyId") l ON l."partyId" = p.id
     WHERE p."tenantId" = ${tenantId}

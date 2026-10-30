@@ -21,6 +21,7 @@ const EMPTY: FormState = { name: "", email: "", phone: "", password: "", roleIds
 export function UsersPage() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
+  const currentUser = useAuth((s) => s.user);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const [search, setSearch] = useState("");
@@ -50,6 +51,15 @@ export function UsersPage() {
     onError: (err) => setError(errMessage(err)),
   });
 
+  const manage = useMutation({
+    mutationFn: async ({ user, remove }: { user: UserRow; remove?: boolean }) => {
+      if (remove) await api.delete(`/users/${user.id}`);
+      else await api.put(`/users/${user.id}`, { status: user.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" });
+    },
+    onSuccess: () => { setError(""); qc.invalidateQueries({ queryKey: ["users"] }); },
+    onError: (err) => setError(errMessage(err)),
+  });
+
   async function resetPassword(u: UserRow) {
     const pw = prompt(`New password for ${u.email}: (min 8 chars, 1 uppercase, 1 digit)`);
     if (!pw) return;
@@ -72,6 +82,7 @@ export function UsersPage() {
         )}
       </div>
 
+      {!form && error && <div className="error">{error}</div>}
       <table>
         <thead>
           <tr><th>Name</th><th>Email</th><th>Roles</th><th>Status</th><th>Last login</th><th /></tr>
@@ -92,8 +103,14 @@ export function UsersPage() {
                       password: "", roleIds: u.roles.map((r) => r.id), status: u.status,
                     })} icon="edit" label="Edit">Edit</IconButton>{" "}
                     <IconButton className="small" onClick={() => resetPassword(u)} icon="key" label="Reset PW">Reset PW</IconButton>
+                    {" "}<IconButton className="small" disabled={manage.isPending || u.id === currentUser?.id}
+                      icon={u.status === "ACTIVE" ? "lock" : "unlock"} label={u.status === "ACTIVE" ? "Deactivate user" : "Activate user"}
+                      onClick={() => { if (confirm(`${u.status === "ACTIVE" ? "Deactivate" : "Activate"} ${u.name}?`)) manage.mutate({ user: u }); }} />
                   </>
                 )}
+                {hasPerm("user:delete") && <>{" "}<IconButton className="small danger" icon="delete" label="Delete user"
+                  disabled={manage.isPending || u.id === currentUser?.id}
+                  onClick={() => { if (confirm(`Permanently delete the login account for ${u.name} (${u.email})? Historical transactions and audit events will be retained. Use Deactivate for a reversible change.`)) manage.mutate({ user: u, remove: true }); }} /></>}
               </td>
             </tr>
           ))}
@@ -115,10 +132,10 @@ export function UsersPage() {
         <div className="modal-overlay" onClick={() => setForm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{form.id ? "Edit user" : "New user"}</h3>
-            <label>Name</label>
+            <label>User name</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <label>Email</label>
-            <input value={form.email} disabled={!!form.id} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <label>Login email</label>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <label>Phone</label>
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             <label>{form.id ? "New password (leave blank to keep)" : "Password"}</label>

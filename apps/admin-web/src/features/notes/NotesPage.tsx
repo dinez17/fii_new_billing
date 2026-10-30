@@ -1,3 +1,4 @@
+import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize, ListTable } from "../../components/ListPagination";
@@ -139,9 +140,7 @@ export function NotesPage() {
   async function openPdf(n: NoteRow) {
     try {
       const { data } = await api.get(`${endpoint}/${n.id}/pdf`, { responseType: "blob" });
-      const url = URL.createObjectURL(data);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await downloadPdf(data, n.noteNumber);
     } catch (err) { alert(errMessage(err)); }
   }
 

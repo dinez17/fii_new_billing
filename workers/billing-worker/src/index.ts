@@ -11,6 +11,7 @@ import { processRun } from "./generate.js";
 const log = createLogger("billing-worker");
 
 interface BillingGenerate {
+  taxMode?: "ALL" | "GST" | "WITHOUT_GST";
   cycleType: "PREPAID" | "POSTPAID";
   periodStart: string;
   periodEnd: string;
@@ -25,6 +26,7 @@ async function main() {
       await processRun({
         tenantId: event.tenantId,
         cycleType: p.cycleType,
+        taxMode: p.taxMode,
         periodStart: new Date(p.periodStart),
         periodEnd: new Date(p.periodEnd),
       });

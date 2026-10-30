@@ -19,6 +19,8 @@ export type PaginationDto = z.infer<typeof paginationSchema>;
 // ── Event payloads
 
 export const invoiceCreatedPayload = z.object({
+  invoiceDate: z.string().optional(),
+  fyCode: z.string().optional(),
   invoiceId: z.string().uuid(),
   invoiceNumber: z.string(),
   customerId: z.string().uuid(),
@@ -28,6 +30,7 @@ export const invoiceCreatedPayload = z.object({
 export type InvoiceCreatedPayload = z.infer<typeof invoiceCreatedPayload>;
 
 export const billingGeneratePayload = z.object({
+  taxMode: z.enum(["ALL", "GST", "WITHOUT_GST"]).default("ALL"),
   cycleType: z.enum(["PREPAID", "POSTPAID"]),
   periodStart: z.string(),
   periodEnd: z.string(),

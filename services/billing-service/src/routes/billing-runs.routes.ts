@@ -7,6 +7,7 @@ import { TOPICS, makeEnvelope, publish } from "@fii/kafka";
 import { h, parse } from "../http.js";
 
 const triggerBody = z.object({
+  taxMode: z.enum(["ALL", "GST", "WITHOUT_GST"]).default("ALL"),
   cycleType: z.enum(["PREPAID", "POSTPAID"]),
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
@@ -55,8 +56,9 @@ billingRunsRouter.post("/trigger", authorize("billing_run:create"), h(async (req
   const end = new Date(Date.UTC(b.year, b.month, 0));
   await publish(TOPICS.BILLING_GENERATE, req.auth!.tenantId, makeEnvelope(req.auth!.tenantId, {
     cycleType: b.cycleType,
+    taxMode: b.taxMode,
     periodStart: start.toISOString(),
     periodEnd: end.toISOString(),
   }, { actorUserId: req.auth!.sub }));
-  res.json({ ok: true, queued: { cycleType: b.cycleType, periodStart: start, periodEnd: end } });
+  res.json({ ok: true, queued: { cycleType: b.cycleType, taxMode: b.taxMode, periodStart: start, periodEnd: end } });
 }));

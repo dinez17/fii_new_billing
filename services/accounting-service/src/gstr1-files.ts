@@ -103,7 +103,7 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
 
   const [invoicesAll, creditNotesAll, debitNotesAll, products] = await Promise.all([
     prisma.invoice.findMany({
-      where: { tenantId, invoiceDate: dateIn },
+      where: { tenantId, chargeGst: true, invoiceDate: dateIn },
       select: {
         invoiceNumber: true, invoiceDate: true, placeOfSupply: true, isInterState: true,
         gstTreatment: true, status: true, grandTotal: true,
@@ -113,12 +113,12 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
       orderBy: { invoiceNumber: "asc" },
     }),
     prisma.creditNote.findMany({
-      where: { tenantId, noteDate: dateIn },
+      where: { tenantId, invoice: { tenantId, chargeGst: true }, noteDate: dateIn },
       select: { noteNumber: true, noteDate: true, status: true, taxableValue: true, cgst: true, sgst: true, igst: true, total: true, invoice: { select: { invoiceNumber: true, placeOfSupply: true, isInterState: true, grandTotal: true, customer: { select: { name: true, gstin: true } } } } },
       orderBy: { noteNumber: "asc" },
     }),
     prisma.debitNote.findMany({
-      where: { tenantId, noteDate: dateIn },
+      where: { tenantId, invoice: { tenantId, chargeGst: true }, noteDate: dateIn },
       select: { noteNumber: true, noteDate: true, status: true, taxableValue: true, cgst: true, sgst: true, igst: true, total: true, invoice: { select: { invoiceNumber: true, placeOfSupply: true, isInterState: true, grandTotal: true, customer: { select: { name: true, gstin: true } } } } },
       orderBy: { noteNumber: "asc" },
     }),

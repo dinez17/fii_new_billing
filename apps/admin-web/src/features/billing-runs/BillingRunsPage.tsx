@@ -6,6 +6,7 @@ import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
 
 interface RunRow {
+  taxMode: "ALL" | "GST" | "WITHOUT_GST";
   id: string; cycleType: "PREPAID" | "POSTPAID"; periodStart: string; periodEnd: string;
   status: string; totalCount: number; successCount: number; failedCount: number;
   startedAt?: string; finishedAt?: string;
@@ -19,6 +20,7 @@ interface RunDetail extends RunRow {
 
 const monthName = (d: string) =>
   new Date(d).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+const taxLabel = (mode: string) => mode === "GST" ? "GST only" : mode === "WITHOUT_GST" ? "Without GST only" : "GST + without GST";
 
 export function BillingRunsPage() {
   const [page, setPage] = useState(1);
@@ -30,6 +32,7 @@ export function BillingRunsPage() {
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
+    taxMode: "ALL" as "ALL" | "GST" | "WITHOUT_GST",
     cycleType: "PREPAID" as "PREPAID" | "POSTPAID",
     year: String(now.getFullYear()),
     month: String(now.getMonth() + 1),
@@ -51,6 +54,7 @@ export function BillingRunsPage() {
     mutationFn: async () => {
       await api.post("/billing-runs/trigger", {
         cycleType: form.cycleType, year: Number(form.year), month: Number(form.month),
+        taxMode: form.taxMode,
       });
     },
     onSuccess: () => {
@@ -82,13 +86,14 @@ export function BillingRunsPage() {
 
       <table>
         <thead>
-          <tr><th>Period</th><th>Type</th><th>Status</th><th>Subscribers</th><th>Invoiced</th><th>Failed</th><th>Finished</th><th /></tr>
+          <tr><th>Period</th><th>Type</th><th>GST mode</th><th>Status</th><th>Subscribers</th><th>Invoiced</th><th>Failed</th><th>Finished</th><th /></tr>
         </thead>
         <tbody>
           {runs.data?.items.map((r) => (
             <tr key={r.id}>
               <td>{monthName(r.periodStart)}</td>
               <td><span className="badge">{r.cycleType}</span></td>
+              <td>{taxLabel(r.taxMode)}</td>
               <td>{statusBadge(r.status)}</td>
               <td>{r.totalCount}</td>
               <td style={{ color: "var(--ok)" }}>{r.successCount}</td>
@@ -98,7 +103,7 @@ export function BillingRunsPage() {
             </tr>
           ))}
           {runs.data?.items.length === 0 && (
-            <tr><td colSpan={8} style={{ color: "var(--muted)" }}>No billing runs yet — trigger one to bill all active subscribers.</td></tr>
+            <tr><td colSpan={9} style={{ color: "var(--muted)" }}>No billing runs yet — trigger one to bill active subscribers.</td></tr>
           )}
         </tbody>
       </table>
@@ -111,7 +116,14 @@ export function BillingRunsPage() {
             <p style={{ color: "var(--muted)" }}>
               Generates one invoice per ACTIVE {form.cycleType.toLowerCase()} subscriber for the selected month.
               Safe to repeat — already-billed subscribers are skipped.
+              {" "}Selected group: {taxLabel(form.taxMode)}.
             </p>
+            <label>GST mode</label>
+            <select aria-label="Billing run GST mode" value={form.taxMode} onChange={(e) => setForm({ ...form, taxMode: e.target.value as typeof form.taxMode })}>
+              <option value="ALL">All subscriptions — GST + without GST</option>
+              <option value="GST">GST subscriptions only</option>
+              <option value="WITHOUT_GST">Without GST subscriptions only</option>
+            </select>
             <label>Cycle</label>
             <select value={form.cycleType} onChange={(e) => setForm({ ...form, cycleType: e.target.value as typeof form.cycleType })}>
               <option>PREPAID</option><option>POSTPAID</option>
@@ -141,6 +153,7 @@ export function BillingRunsPage() {
         <div className="modal-overlay" onClick={() => setDetailId(null)}>
           <div className="modal" style={{ width: 720 }} onClick={(e) => e.stopPropagation()}>
             <h3>{monthName(detail.data.periodStart)} · {detail.data.cycleType} {statusBadge(detail.data.status)}</h3>
+            <p>{taxLabel(detail.data.taxMode)}</p>
             <p style={{ color: "var(--muted)" }}>
               {detail.data.successCount} invoiced · {detail.data.failedCount} failed of {detail.data.totalCount}
             </p>

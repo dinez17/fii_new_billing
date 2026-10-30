@@ -5,14 +5,15 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
+import { InvoiceTemplatesTab } from "./InvoiceTemplatesTab";
 import { LicenseTab } from "./LicenseTab";
 import { LegacyImportTab } from "./LegacyImportTab";
 import { isPlatformConsole } from "../../lib/console";
 
-type Tab = "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
+type Tab = "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
 
 const TAB_LABELS: Record<Tab, string> = {
-  company: "Company profile", fy: "Financial years", series: "Number series",
+  invoice: "Invoice format", company: "Company profile", fy: "Financial years", series: "Number series",
   license: "License",
   legacy: "Legacy import",
   terms: "Terms & Conditions", inventory: "Inventory", gateway: "Payment gateway", smtp: "Email (SMTP)", security: "My security",
@@ -32,6 +33,7 @@ export function SettingsPage() {
         ))}
       </div>
       {tab === "company" && <CompanyTab />}
+      {tab === "invoice" && <InvoiceTemplatesTab />}
       {tab === "license" && !isPlatformConsole && <LicenseTab />}
       {tab === "legacy" && !isPlatformConsole && canReadLegacy && <LegacyImportTab />}
       {tab === "fy" && <FyTab />}
@@ -536,7 +538,7 @@ function SeriesTab() {
         <tbody>
           {series.data?.map((s) => (
             <tr key={s.id}>
-              <td>{s.docType.replace(/_/g, " ")}</td>
+              <td>{s.docType === "NON_GST_INVOICE" ? "Invoice — Without GST" : s.docType.replace(/_/g, " ")}</td>
               <td><code>{s.fyCode}</code></td>
               <td><code>{s.prefix}</code></td>
               <td>{s.nextNumber}</td>

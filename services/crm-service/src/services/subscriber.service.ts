@@ -77,10 +77,12 @@ export async function createSubscriber(tenantId: string, input: CreateInput) {
         activationDate: input.activationDate,
         installAddress: input.installAddress,
         meta: input.meta,
+        chargeGst: input.chargeGst,
         plans: {
           create: input.plans.map((sel) => ({
             tenantId,
             planId: sel.planId,
+            location: sel.location || null,
             startDate: input.activationDate,
             priceOverride: sel.priceOverride !== undefined ? new Prisma.Decimal(sel.priceOverride) : undefined,
           })),
@@ -95,7 +97,7 @@ export async function createSubscriber(tenantId: string, input: CreateInput) {
 export async function addPlan(
   tenantId: string,
   id: string,
-  input: { planId: string; startDate: Date; priceOverride?: number },
+  input: { planId: string; startDate: Date; priceOverride?: number; location?: string },
 ) {
   const sub = await prisma.subscriber.findFirst({ where: { id, tenantId } });
   if (!sub) throw notFound("Subscriber");
@@ -104,21 +106,33 @@ export async function addPlan(
   const plan = await prisma.plan.findFirst({ where: { id: input.planId, tenantId, isActive: true } });
   if (!plan) throw notFound("Plan");
 
-  const alreadyActive = await prisma.subscriberPlan.findFirst({
-    where: { subscriberId: id, planId: input.planId, endDate: null },
-  });
-  if (alreadyActive) throw badRequest(`Plan "${plan.name}" is already active on this subscriber`);
-
   return prisma.subscriberPlan.create({
     data: {
       tenantId,
       subscriberId: id,
       planId: input.planId,
+      location: input.location || null,
       startDate: input.startDate,
       priceOverride: input.priceOverride !== undefined ? new Prisma.Decimal(input.priceOverride) : undefined,
     },
     include: { plan: true },
   });
+}
+
+export async function updatePlanLocation(tenantId: string, subscriberId: string, mappingId: string, location: string | null) {
+  return updateSubscriberPlan(tenantId, subscriberId, mappingId, { location });
+}
+
+export async function updateSubscriberPlan(tenantId: string, subscriberId: string, mappingId: string,
+  input: { planId?: string; location?: string | null; priceOverride?: number | null; startDate?: Date }) {
+  const mapping = await prisma.subscriberPlan.findFirst({ where: { id: mappingId, tenantId, subscriberId, endDate: null, subscriber: { tenantId, status: { not: "TERMINATED" } } } });
+  if (!mapping) throw notFound("Active plan mapping");
+  if (input.planId && input.planId !== mapping.planId && !await prisma.plan.findFirst({ where: { id: input.planId, tenantId, isActive: true } })) throw notFound("Plan");
+  return prisma.subscriberPlan.update({ where: { id: mappingId }, data: {
+    planId: input.planId, startDate: input.startDate,
+    location: input.location === undefined ? undefined : input.location || null,
+    priceOverride: input.priceOverride === undefined ? undefined : input.priceOverride === null ? null : new Prisma.Decimal(input.priceOverride),
+  }, include: { plan: true } });
 }
 
 /** End one active plan mapping (subscriber keeps any others). */

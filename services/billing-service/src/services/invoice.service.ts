@@ -95,13 +95,15 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
 
   const placeOfSupply = customer.stateCode ?? tenant.stateCode;
   const isInterState = placeOfSupply !== tenant.stateCode;
-  const totals = computeGst(input.items, isInterState);
   const defaultTerms = await termsFor(tenantId, "INVOICE");
 
   return prisma.$transaction(async (tx) => {
-    const subscriber = input.subscriberId ? await tx.subscriber.findFirst({ where: { id: input.subscriberId, tenantId, customerId: customer.id }, select: { poNumber: true } }) : null;
+    const subscriber = input.subscriberId ? await tx.subscriber.findFirst({ where: { id: input.subscriberId, tenantId, customerId: customer.id }, select: { poNumber: true, chargeGst: true } }) : null;
     if (input.subscriberId && !subscriber) throw notFound("Subscriber");
-    const invoiceNumber = await allocateNumber(tx, tenantId, "INVOICE", fy.code);
+    const chargeGst = subscriber?.chargeGst === false ? false : input.chargeGst ?? true;
+    const items = chargeGst ? input.items : input.items.map((item) => ({ ...item, gstRate: 0 }));
+    const totals = computeGst(items, isInterState);
+    const invoiceNumber = await allocateNumber(tx, tenantId, chargeGst ? "INVOICE" : "NON_GST_INVOICE", fy.code);
     const invoice = await tx.invoice.create({
       data: {
         tenantId,
@@ -115,6 +117,7 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
         dueDate: input.dueDate,
         placeOfSupply,
         gstTreatment: customer.gstTreatment,
+        chargeGst,
         isInterState,
         subTotal: totals.subTotal,
         discountTotal: totals.discountTotal,
@@ -128,7 +131,7 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
         notes: input.notes,
         terms: input.terms ?? defaultTerms,
         createdById: actorId,
-        items: { create: itemRows(input.items, totals) },
+        items: { create: itemRows(items, totals) },
       },
       include: { items: true, customer: { select: { name: true, phone: true } } },
     });
@@ -139,6 +142,8 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
       invoiceId: invoice.id,
       invoiceNumber,
       customerId: customer.id,
+      invoiceDate: input.invoiceDate.toISOString(),
+      fyCode: fy.code,
       grandTotal: totals.grandTotal,
       dueDate: input.dueDate.toISOString(),
     }, { actorUserId: actorId }));
@@ -150,6 +155,7 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
 export async function listInvoices(tenantId: string, q: ListQuery) {
   const where: Prisma.InvoiceWhereInput = {
     tenantId,
+    ...(q.taxMode ? { chargeGst: q.taxMode === "GST" } : {}),
     ...(q.status ? { status: q.status === "OUTSTANDING" ? { in: ["UNPAID", "PARTIAL"] } : q.status } : {}),
     ...(q.customerId ? { customerId: q.customerId } : {}),
     ...(q.fyCode ? { fyCode: q.fyCode } : {}),
@@ -210,6 +216,7 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} AND "tenantId" = ${tenantId} FOR UPDATE`;
     const invoice = await tx.invoice.findFirst({ where: { id, tenantId }, include: { items: true, payments: true, creditNotes: { where: { status: { not: "CANCELLED" } } }, debitNotes: { where: { status: { not: "CANCELLED" } } } } });
     if (!invoice) throw notFound("Invoice");
+    if (input.chargeGst !== undefined && input.chargeGst !== invoice.chargeGst) throw badRequest("Invoice register cannot be changed. Cancel and create a new invoice in the correct register.");
     if (invoice.status !== "UNPAID" || invoice.payments.length || Number(invoice.amountPaid) > 0 || Number(invoice.creditedAmount) > 0) throw badRequest("Only unpaid invoices with no payments can be edited — issue a credit note instead");
     if (invoice.creditNotes.length || invoice.debitNotes.length) throw badRequest("Invoice has credit/debit notes and cannot be edited");
     await assertActiveFy(tenantId, invoice.invoiceDate);
@@ -222,7 +229,8 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
     const customer = await tx.customer.findFirst({ where: { id: customerId, tenantId } });
     if (!customer || (customerId !== invoice.customerId && !customer.isActive)) throw notFound("Customer");
     const subscriberId = input.subscriberId !== undefined ? input.subscriberId : customerId === invoice.customerId ? invoice.subscriberId : null;
-    if (subscriberId && !await tx.subscriber.findFirst({ where: { id: subscriberId, customerId, tenantId } })) throw notFound("Subscriber");
+    const subscriber = subscriberId ? await tx.subscriber.findFirst({ where: { id: subscriberId, customerId, tenantId } }) : null;
+    if (subscriberId && !subscriber) throw notFound("Subscriber");
     if (!input.items && customerId === invoice.customerId && invoiceDate.getTime() === invoice.invoiceDate.getTime()) {
       return tx.invoice.update({ where: { id }, data: { subscriberId, dueDate, poNumber: input.poNumber === undefined ? undefined : input.poNumber || null, notes: input.notes, terms: input.terms }, include: { items: true } });
     }
@@ -230,7 +238,10 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
     if (!tenant.stateCode) throw badRequest("Set company GST state code first");
     const placeOfSupply = customer.stateCode ?? tenant.stateCode;
     const isInterState = placeOfSupply !== tenant.stateCode;
-    const items = input.items ?? invoice.items.map((item) => ({ productId: item.productId, description: item.description, hsnSac: item.hsnSac, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), discount: Number(item.discount), gstRate: Number(item.gstRate) }));
+    // Keep the saved tax treatment when editing the same subscription invoice.
+    const noGst = !invoice.chargeGst;
+    const sourceItems = input.items ?? invoice.items.map((item) => ({ productId: item.productId, description: item.description, hsnSac: item.hsnSac, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), discount: Number(item.discount), gstRate: Number(item.gstRate) }));
+    const items = noGst ? sourceItems.map((item) => ({ ...item, gstRate: 0 })) : sourceItems;
     const totals = computeGst(items, isInterState);
     if (input.items) {
       await reverseSaleStock(tx, tenantId, id, "invoice edited — lines replaced", actorId);
@@ -241,7 +252,7 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
       customerId, subscriberId, invoiceDate, dueDate,
       poNumber: input.poNumber === undefined ? undefined : input.poNumber || null,
       notes: input.notes, terms: input.terms,
-      placeOfSupply, isInterState, gstTreatment: customer.gstTreatment,
+      placeOfSupply, isInterState, gstTreatment: customer.gstTreatment, chargeGst: !noGst,
       subTotal: totals.subTotal, discountTotal: totals.discountTotal, taxableValue: totals.taxableValue,
       cgst: totals.cgst, sgst: totals.sgst, igst: totals.igst, roundOff: totals.roundOff, grandTotal: totals.grandTotal,
       items: { create: itemRows(items, totals) },

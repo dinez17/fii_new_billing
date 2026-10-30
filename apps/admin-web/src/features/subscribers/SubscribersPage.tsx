@@ -8,10 +8,13 @@ import { useAuth } from "../../stores/auth";
 import { EntitySelect } from "../../components/EntitySelect";
 
 interface PlanLite { id: string; name: string; code: string; price: string; planType: string }
-interface Mapping { id: string; priceOverride?: string; startDate: string; plan: PlanLite }
+interface Mapping { id: string; priceOverride?: string; startDate: string; location?: string | null; plan: PlanLite }
+interface ConnectionDraft { planId: string; location: string; price: string; startDate: string }
+const connectionDraft = (mapping: Mapping): ConnectionDraft => ({ planId: mapping.plan.id, location: mapping.location ?? "", price: mapping.priceOverride == null ? "" : String(mapping.priceOverride), startDate: mapping.startDate.slice(0, 10) });
 interface SubRow {
   id: string; code: string; subscriberType: "PREPAID" | "POSTPAID";
   billingCycleMonths: number;
+  chargeGst: boolean;
   poNumber?: string | null;
   status: "ACTIVE" | "SUSPENDED" | "TERMINATED"; activationDate: string;
   customer: { id: string; name: string; phone: string };
@@ -21,11 +24,12 @@ interface SubRow {
 interface CreateForm {
   customerId: string; subscriberType: "PREPAID" | "POSTPAID";
   billingCycleMonths: string;
-  planSel: Record<string, { checked: boolean; override: string }>;
+  chargeGst: boolean;
+  planSel: { key: string; planId: string; override: string; location: string }[];
   activationDate: string; poNumber: string;
 }
 const EMPTY: CreateForm = {
-  customerId: "", subscriberType: "PREPAID", billingCycleMonths: "1", planSel: {},
+  customerId: "", subscriberType: "PREPAID", billingCycleMonths: "1", chargeGst: true, planSel: [],
   activationDate: new Date().toISOString().slice(0, 10), poNumber: "",
 };
 
@@ -33,6 +37,9 @@ const CYCLES: Array<[string, string]> = [
   ["1", "Monthly"], ["3", "Quarterly"], ["6", "Half-yearly"], ["12", "Annual"],
 ];
 const cycleLabel = (n: number) => CYCLES.find(([v]) => Number(v) === n)?.[1] ?? `${n} mo`;
+const connectionSince = (subscriber: SubRow) => subscriber.plans.length
+  ? subscriber.plans.reduce((earliest, mapping) => mapping.startDate < earliest ? mapping.startDate : earliest, subscriber.plans[0].startDate)
+  : subscriber.activationDate;
 
 const inr = (v: unknown) => `₹${Number(v).toFixed(0)}`;
 
@@ -48,7 +55,9 @@ export function SubscribersPage() {
   const [form, setForm] = useState<CreateForm | null>(null);
   const [manageFor, setManageFor] = useState<SubRow | null>(null);
   const [poDraft, setPoDraft] = useState("");
-  const [addPlan, setAddPlan] = useState({ planId: "", startDate: new Date().toISOString().slice(0, 10), override: "" });
+  const [addPlan, setAddPlan] = useState({ planId: "", startDate: new Date().toISOString().slice(0, 10), override: "", location: "" });
+  const [connectionDrafts, setConnectionDrafts] = useState<Record<string, ConnectionDraft>>({});
+  const [savingConnection, setSavingConnection] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const subs = useQuery({
@@ -73,11 +82,10 @@ export function SubscribersPage() {
         customerId: f.customerId,
         subscriberType: f.subscriberType,
         billingCycleMonths: Number(f.billingCycleMonths),
+        chargeGst: f.chargeGst,
         activationDate: f.activationDate,
         poNumber: f.poNumber,
-        plans: Object.entries(f.planSel)
-          .filter(([, v]) => v.checked)
-          .map(([planId, v]) => ({ planId, priceOverride: v.override ? Number(v.override) : undefined })),
+        plans: f.planSel.map((v) => ({ planId: v.planId, location: v.location, priceOverride: v.override ? Number(v.override) : undefined })),
       });
     },
     onSuccess: () => { setForm(null); setError(""); qc.invalidateQueries({ queryKey: ["subscribers"] }); },
@@ -94,11 +102,12 @@ export function SubscribersPage() {
       await api.post(`/subscribers/${manageFor!.id}/plans`, {
         planId: addPlan.planId,
         startDate: addPlan.startDate,
+        location: addPlan.location,
         priceOverride: addPlan.override ? Number(addPlan.override) : undefined,
       });
     },
     onSuccess: async () => {
-      setError(""); setAddPlan({ ...addPlan, planId: "", override: "" });
+      setError(""); setAddPlan({ ...addPlan, planId: "", override: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["subscribers"] });
       // refresh the open dialog with new data
       const { data } = await api.get(`/subscribers/${manageFor!.id}`);
@@ -118,6 +127,22 @@ export function SubscribersPage() {
     } catch (err) { alert(errMessage(err)); }
   }
 
+  function editConnection(mapping: Mapping, patch: Partial<ConnectionDraft>) {
+    setConnectionDrafts((current) => ({ ...current, [mapping.id]: { ...(current[mapping.id] ?? connectionDraft(mapping)), ...patch } }));
+  }
+  async function saveConnection(mapping: Mapping) {
+    const draft = connectionDrafts[mapping.id] ?? connectionDraft(mapping);
+    setSavingConnection(mapping.id);
+    try {
+      const { data } = await api.put(`/subscribers/${manageFor!.id}/plans/${mapping.id}`, { planId: draft.planId, location: draft.location, priceOverride: draft.price ? Number(draft.price) : null, startDate: draft.startDate });
+      setManageFor((current) => current ? { ...current, plans: current.plans.map((row) => row.id === mapping.id ? data as Mapping : row) } : current);
+      setConnectionDrafts((current) => { const next = { ...current }; delete next[mapping.id]; return next; });
+      setError("");
+      qc.invalidateQueries({ queryKey: ["subscribers"] });
+    } catch (err) { setError(errMessage(err)); }
+    finally { setSavingConnection(null); }
+  }
+
   async function action(sub: SubRow, act: "suspend" | "activate" | "terminate") {
     if (act === "terminate" && !confirm(`Terminate ${sub.code}? This cannot be undone.`)) return;
     try { await api.post(`/subscribers/${sub.id}/${act}`); qc.invalidateQueries({ queryKey: ["subscribers"] }); }
@@ -126,7 +151,7 @@ export function SubscribersPage() {
 
   // plans serve both prepaid and postpaid
   const allPlans = () => plans.data ?? [];
-  const selectedCount = form ? Object.values(form.planSel).filter((v) => v.checked).length : 0;
+  const selectedCount = form?.planSel.length ?? 0;
 
   return (
     <>
@@ -159,16 +184,17 @@ export function SubscribersPage() {
               <td>
                 <span className="badge">{s.subscriberType}</span>{" "}
                 <span className="badge">{cycleLabel(s.billingCycleMonths)}</span>
+                <div><span className="badge">{s.chargeGst ? "GST" : "Without GST"}</span></div>
               </td>
               <td style={{ fontSize: 13 }}>
                 {s.plans.length
                   ? s.plans.map((m) => (
-                      <div key={m.id}>{m.plan.name} <span style={{ color: "var(--muted)" }}>{inr(m.priceOverride ?? m.plan.price)}</span></div>
+                      <div key={m.id}>{m.plan.name}{m.location && ` — ${m.location}`} <span style={{ color: "var(--muted)" }}>{inr(m.priceOverride ?? m.plan.price)}</span></div>
                     ))
                   : <span style={{ color: "var(--danger)" }}>no plan</span>}
               </td>
               <td><span className={`badge ${s.status === "ACTIVE" ? "ok" : s.status === "TERMINATED" ? "warn" : ""}`}>{s.status}</span></td>
-              <td>{formatDate(s.activationDate)}</td>
+              <td title={`Earliest active connection start. Subscriber activated ${formatDate(s.activationDate)}`}>{formatDate(connectionSince(s))}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 {hasPerm("subscriber:update") && s.status !== "TERMINATED" && (
                   <>
@@ -203,6 +229,10 @@ export function SubscribersPage() {
             <label>Customer * (active customers only)</label>
             <EntitySelect kind="customers" activeOnly placeholder="Search active customers…" value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} />
             <label>PO number</label><input maxLength={100} value={form.poNumber} onChange={(e) => setForm({ ...form, poNumber: e.target.value })} />
+            <label>GST billing</label>
+            <select value={String(form.chargeGst)} onChange={(e) => setForm({ ...form, chargeGst: e.target.value === "true" })}>
+              <option value="true">Charge GST — use plan tax rates</option><option value="false">Without GST — zero tax</option>
+            </select>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
                 <label>Type</label>
@@ -220,30 +250,30 @@ export function SubscribersPage() {
               </div>
             </div>
 
-            <label>Plans * (select one or more — internet + IPTV + static IP etc.; prices are per month)</label>
+            <label>Plans / connections * (add the same plan for each location)</label>
             <input aria-label="Search plans to subscribe" placeholder="Search plan name / code…" value={planSearch} onChange={(e) => setPlanSearch(e.target.value)} />
-            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, maxHeight: 220, overflowY: "auto" }}>
-              {allPlans().filter((p) => `${p.name} ${p.code}`.toLowerCase().includes(planSearch.toLowerCase()) || form.planSel[p.id]?.checked).map((p) => {
-                const sel = form.planSel[p.id] ?? { checked: false, override: "" };
-                return (
-                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px" }}>
-                    <input type="checkbox" aria-label={`Select plan ${p.name}`} disabled={!sel.checked && selectedCount >= 10} style={{ width: "auto" }} checked={sel.checked}
-                      onChange={(e) => setForm({ ...form, planSel: { ...form.planSel, [p.id]: { ...sel, checked: e.target.checked } } })} />
-                    <span style={{ flex: 1 }}>{p.name} <span style={{ color: "var(--muted)" }}>{inr(p.price)}/mo</span></span>
-                    {sel.checked && (
-                      <input type="number" placeholder={`override ${inr(p.price)}`} style={{ width: 130 }}
-                        value={sel.override}
-                        onChange={(e) => setForm({ ...form, planSel: { ...form.planSel, [p.id]: { ...sel, override: e.target.value } } })} />
-                    )}
-                  </div>
-                );
-              })}
-              {allPlans().length === 0 && (
-                <span style={{ color: "var(--muted)" }}>No plans yet — create one under Plans.</span>
-              )}
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, maxHeight: 150, overflowY: "auto" }}>
+              {allPlans().filter((p) => `${p.name} ${p.code}`.toLowerCase().includes(planSearch.toLowerCase())).map((p) => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px" }}>
+                  <span style={{ flex: 1 }}>{p.name} <small>{inr(p.price)}/mo</small></span>
+                  <button type="button" className="small" disabled={selectedCount >= 50} onClick={() => setForm({ ...form, planSel: [...form.planSel, { key: crypto.randomUUID(), planId: p.id, override: "", location: "" }] })}>+ Add</button>
+                </div>
+              ))}
+              {allPlans().length === 0 && <small>No plans yet — create one under Plans.</small>}
             </div>
-
-            <small>{selectedCount} of 10 plans selected</small>
+            <div style={{ maxHeight: 230, overflowY: "auto" }}>
+              {form.planSel.map((sel, index) => (
+                <div key={sel.key} style={{ borderBottom: "1px solid var(--border)", padding: "6px 0" }}>
+                  <small>{index + 1}. {allPlans().find((p) => p.id === sel.planId)?.name}</small>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 6 }}>
+                    <input aria-label={`Connection ${index + 1} location (optional)`} maxLength={100} placeholder="Location / connection (optional)" value={sel.location} onChange={(e) => setForm({ ...form, planSel: form.planSel.map((row) => row.key === sel.key ? { ...row, location: e.target.value } : row) })} />
+                    <input aria-label={`Connection ${index + 1} price`} type="number" min="0.01" step="0.01" placeholder="Override ₹/mo" value={sel.override} onChange={(e) => setForm({ ...form, planSel: form.planSel.map((row) => row.key === sel.key ? { ...row, override: e.target.value } : row) })} />
+                    <IconButton icon="close" label={`Remove connection ${index + 1}`} onClick={() => setForm({ ...form, planSel: form.planSel.filter((row) => row.key !== sel.key) })} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <small>{selectedCount} of 50 connections added</small>
             <div>
               <div><label>Activation date</label>
                 <input type="date" value={form.activationDate} onChange={(e) => setForm({ ...form, activationDate: e.target.value })} /></div>
@@ -262,7 +292,7 @@ export function SubscribersPage() {
 
       {manageFor && (
         <div className="modal-overlay" onClick={() => setManageFor(null)}>
-          <div className="modal compact-modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal compact-modal" style={{ width: 820 }} onClick={(e) => e.stopPropagation()}>
             <h3>Subscriber — {manageFor.code} <span style={{ fontWeight: 400, fontSize: 14 }}>({manageFor.customer.name})</span></h3>
             <label>Subscriber type</label>
             <select aria-label="Edit subscriber type" value={manageFor.subscriberType} onChange={async (e) => {
@@ -272,6 +302,18 @@ export function SubscribersPage() {
             <label>PO number</label>
             <div style={{ display: "flex", gap: 8, marginBottom: 6 }}><input aria-label="Subscriber PO number" maxLength={100} value={poDraft} onChange={(e) => setPoDraft(e.target.value)} /><button style={{ whiteSpace: "nowrap" }} disabled={savePo.isPending || poDraft.trim() === (manageFor.poNumber ?? "")} onClick={() => savePo.mutate()}>{savePo.isPending ? "Saving…" : "Save PO"}</button></div>
             <p style={{ fontSize: 12, color: "var(--muted)" }}>Used on new invoices for this subscriber. Issued invoices retain their saved PO.</p>
+            <label>GST billing (future invoices only)</label>
+            <select value={String(manageFor.chargeGst)} disabled={!hasPerm("subscriber:update")}
+              onChange={async (e) => {
+                const chargeGst = e.target.value === "true";
+                try {
+                  await api.put(`/subscribers/${manageFor.id}`, { chargeGst });
+                  setManageFor({ ...manageFor, chargeGst });
+                  qc.invalidateQueries({ queryKey: ["subscribers"] });
+                } catch (err) { setError(errMessage(err)); }
+              }}>
+              <option value="true">Charge GST — use plan tax rates</option><option value="false">Without GST — zero tax</option>
+            </select>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ color: "var(--muted)", fontSize: 13 }}>Billing frequency:</span>
               <select style={{ width: 160 }} value={String(manageFor.billingCycleMonths)}
@@ -290,21 +332,32 @@ export function SubscribersPage() {
             <table style={{ fontSize: 13 }}>
               <thead><tr><th>Plan</th><th>Price</th><th>Since</th><th /></tr></thead>
               <tbody>
-                {manageFor.plans.map((m) => (
+                {manageFor.plans.map((m) => {
+                  const draft = connectionDrafts[m.id] ?? connectionDraft(m);
+                  const changed = JSON.stringify(draft) !== JSON.stringify(connectionDraft(m));
+                  return (
                   <tr key={m.id}>
-                    <td>{m.plan.name}</td>
-                    <td>{inr(m.priceOverride ?? m.plan.price)}{m.priceOverride && <span style={{ color: "var(--muted)" }}> (override)</span>}</td>
-                    <td>{formatDate(m.startDate)}</td>
-                    <td><IconButton className="small danger" onClick={() => void endPlan(m)} icon="more" label="End">End</IconButton></td>
+                    <td>
+                      <EntitySelect kind="plans" value={draft.planId} placeholder={m.plan.name} onChange={(planId) => editConnection(m, { planId })} />
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input aria-label={`Location for ${m.plan.name} (optional)`} maxLength={100} placeholder="Location / connection (optional)" disabled={!hasPerm("subscriber:update")} value={draft.location} onChange={(e) => editConnection(m, { location: e.target.value })} />
+                      </div>
+                    </td>
+                    <td><input aria-label={`Price override for ${m.plan.name}`} type="number" min="0.01" step="0.01" style={{ width: 115 }} placeholder={inr(m.plan.price)} value={draft.price} disabled={!hasPerm("subscriber:update")} onChange={(e) => editConnection(m, { price: e.target.value })} /><small>Blank = plan price</small></td>
+                    <td><input aria-label={`Start date for ${m.plan.name}`} type="date" style={{ width: 135 }} value={draft.startDate} disabled={!hasPerm("subscriber:update")} onChange={(e) => editConnection(m, { startDate: e.target.value })} /></td>
+                    <td style={{ whiteSpace: "nowrap" }}><IconButton icon="check" label="Save connection changes" disabled={!hasPerm("subscriber:update") || !changed || !draft.planId || !draft.startDate || savingConnection !== null} onClick={() => void saveConnection(m)} />{" "}<IconButton className="small danger" onClick={() => void endPlan(m)} icon="more" label="End">End</IconButton></td>
                   </tr>
-                ))}
+                ); })}
                 {manageFor.plans.length === 0 && (
                   <tr><td colSpan={4} style={{ color: "var(--danger)" }}>No active plans — billing will skip this subscriber.</td></tr>
                 )}
               </tbody>
             </table>
+            <small>Edit a connection and click its check icon to save. Existing invoices retain their saved details.</small>
 
-            <label style={{ marginTop: 14 }}>Add a plan</label>
+            <label style={{ marginTop: 14 }}>Add a plan / another connection</label>
+            <input aria-label="New connection location (optional)" maxLength={100} placeholder="Location / connection (optional)" value={addPlan.location} onChange={(e) => setAddPlan({ ...addPlan, location: e.target.value })} />
+            <small>Location is optional. Select a plan below to enable Add plan.</small>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
               <EntitySelect kind="plans" value={addPlan.planId} placeholder="Search plan name / code…" onChange={(planId) => setAddPlan({ ...addPlan, planId })} />
               <input type="date" value={addPlan.startDate} onChange={(e) => setAddPlan({ ...addPlan, startDate: e.target.value })} />

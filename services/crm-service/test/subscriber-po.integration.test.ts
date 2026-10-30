@@ -4,7 +4,7 @@ import { prisma } from "@fii/database";
 import { createSubscriber, getSubscriber } from "../src/services/subscriber.service.js";
 import { subscriberCreateBody, subscriberUpdateBody } from "../src/validators.js";
 import { processRun } from "../../../workers/billing-worker/src/generate.js";
-import { createInvoice, updateInvoice, cancelInvoice } from "../../billing-service/src/services/invoice.service.js";
+import { createInvoice, updateInvoice, cancelInvoice, listInvoices } from "../../billing-service/src/services/invoice.service.js";
 import { buildInvoicePdfBuffer } from "@fii/pdf";
 const suite = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
 suite("subscriber PO snapshot through billing and PDF", () => {
@@ -19,6 +19,7 @@ suite("subscriber PO snapshot through billing and PDF", () => {
     subscriberId = (await createSubscriber(tenantId, subscriberCreateBody.parse({ customerId, subscriberType: "PREPAID", activationDate: "2026-10-01", plans: [{ planId }], poNumber: " PO/2026/ORIGINAL-001 " }))).id;
   });
   afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { tenantId } });
     await prisma.billingRunItem.deleteMany({ where: { billingRun: { tenantId } } });
     await prisma.billingRun.deleteMany({ where: { tenantId } });
     await prisma.outboxEvent.deleteMany({ where: { tenantId } });
@@ -66,5 +67,61 @@ suite("subscriber PO snapshot through billing and PDF", () => {
     const pdf = await buildInvoicePdfBuffer(tenantId, next.id);
     mkdirSync("output/pdf", { recursive: true }); writeFileSync("output/pdf/subscriber-po-test.pdf", pdf.buffer);
     expect(pdf.buffer.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+  it("supports GST and no-GST subscribers while preserving historical invoice taxes", async () => {
+    expect(subscriberUpdateBody.parse({ poNumber: "PO" })).not.toHaveProperty("chargeGst");
+    await prisma.subscriber.update({ where: { id: subscriberId }, data: subscriberUpdateBody.parse({ chargeGst: false }) });
+    const spec = { tenantId, cycleType: "PREPAID" as const, periodStart: new Date("2026-12-01"), periodEnd: new Date("2026-12-31") };
+    await processRun(spec);
+    const untaxed = await prisma.invoice.findFirstOrThrow({ where: { tenantId, periodStart: spec.periodStart }, include: { items: true } });
+    expect(Number(untaxed.grandTotal)).toBe(100);
+    expect(untaxed.chargeGst).toBe(false);
+    expect(untaxed.invoiceNumber).toMatch(/^NG\/2026-27\//);
+    expect(Number(untaxed.cgst) + Number(untaxed.sgst) + Number(untaxed.igst)).toBe(0);
+    expect(Number(untaxed.items[0].gstRate)).toBe(0);
+    const input = { customerId, subscriberId, invoiceDate: new Date("2026-12-01"), dueDate: new Date("2026-12-10"), items: [{ description: "Service", quantity: 1, unitPrice: 100, discount: 0, gstRate: 18 }] };
+    const manual = await createInvoice(tenantId, actorId, input);
+    expect(Number(manual.grandTotal)).toBe(100);
+    const standalone = await createInvoice(tenantId, actorId, { ...input, subscriberId: undefined, chargeGst: false });
+    expect(standalone.invoiceNumber).toMatch(/^NG\/2026-27\//);
+    expect(Number(standalone.grandTotal)).toBe(100);
+    expect(standalone.invoiceNumber).not.toBe(manual.invoiceNumber);
+    await expect(updateInvoice(tenantId, actorId, standalone.id, { chargeGst: true })).rejects.toThrow("Invoice register cannot be changed");
+    await prisma.subscriber.update({ where: { id: subscriberId }, data: { chargeGst: true } });
+    expect(Number((await updateInvoice(tenantId, actorId, manual.id, { items: input.items })).grandTotal)).toBe(100);
+    await processRun({ ...spec, periodStart: new Date("2027-01-01"), periodEnd: new Date("2027-01-31") });
+    const taxed = await prisma.invoice.findFirstOrThrow({ where: { tenantId, periodStart: new Date("2027-01-01") } });
+    expect(Number(taxed.grandTotal)).toBe(118);
+    expect(taxed.invoiceNumber).not.toMatch(/^NG\//);
+    const nonGstList = await listInvoices(tenantId, { page: 1, limit: 100, taxMode: "WITHOUT_GST" });
+    expect(nonGstList.total).toBe(3);
+    expect(nonGstList.items.every((invoice) => invoice.chargeGst === false)).toBe(true);
+    const gstList = await listInvoices(tenantId, { page: 1, limit: 100, taxMode: "GST" });
+    expect(gstList.items.every((invoice) => invoice.chargeGst === true)).toBe(true);
+    const series = await prisma.numberSeries.findMany({ where: { tenantId, docType: { in: ["INVOICE", "NON_GST_INVOICE"] } } });
+    expect(series).toHaveLength(2);
+    expect(series.find((row) => row.docType === "NON_GST_INVOICE")?.nextNumber).toBe(4);
+    const pdf = await buildInvoicePdfBuffer(tenantId, standalone.id);
+    writeFileSync("output/pdf/non-gst-invoice-test.pdf", pdf.buffer);
+    expect(Number((await prisma.invoice.findUniqueOrThrow({ where: { id: untaxed.id } })).grandTotal)).toBe(100);
+  });
+  it("runs GST and without-GST groups independently and retries without duplicating invoices or losing the other history", async () => {
+    const untaxedSubscriber = await createSubscriber(tenantId, subscriberCreateBody.parse({ customerId: otherCustomerId, subscriberType: "PREPAID", activationDate: "2026-10-01", chargeGst: false, plans: [{ planId }] }));
+    const periodStart = new Date("2027-02-01");
+    const spec = { tenantId, cycleType: "PREPAID" as const, periodStart, periodEnd: new Date("2027-02-28") };
+    await processRun({ ...spec, taxMode: "GST" });
+    expect(await prisma.invoice.count({ where: { tenantId, periodStart, subscriberId } })).toBe(1);
+    expect(await prisma.invoice.count({ where: { tenantId, periodStart, subscriberId: untaxedSubscriber.id } })).toBe(0);
+    await processRun({ ...spec, taxMode: "WITHOUT_GST" });
+    const without = await prisma.billingRun.findFirstOrThrow({ where: { tenantId, periodStart, taxMode: "WITHOUT_GST" }, include: { items: true } });
+    expect(without.items.map((row) => row.subscriberId)).toEqual([untaxedSubscriber.id]);
+    expect(without.totalCount).toBe(1);
+    await processRun({ ...spec, taxMode: "GST" });
+    expect(await prisma.billingRunItem.count({ where: { billingRunId: without.id } })).toBe(1);
+    await processRun(spec); // old scheduler events still mean ALL
+    expect(await prisma.invoice.count({ where: { tenantId, periodStart } })).toBe(2);
+    expect(await prisma.billingRun.count({ where: { tenantId, periodStart } })).toBe(3);
+    expect((await prisma.billingRun.findFirstOrThrow({ where: { tenantId, periodStart, taxMode: "ALL" } })).totalCount).toBe(2);
+    expect(Number((await prisma.invoice.findFirstOrThrow({ where: { tenantId, periodStart, subscriberId: untaxedSubscriber.id } })).grandTotal)).toBe(100);
   });
 });

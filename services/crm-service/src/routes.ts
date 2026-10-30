@@ -6,7 +6,7 @@ import * as subscribers from "./services/subscriber.service.js";
 import { h, parse } from "./http.js";
 import {
   addPlanBody, customerBody, customerListQuery, endPlanBody, planBody, portalAccessBody,
-  subscriberCreateBody, subscriberListQuery, subscriberUpdateBody,
+  subscriberCreateBody, subscriberListQuery, subscriberUpdateBody, updateSubscriberPlanBody,
 } from "./validators.js";
 import { z } from "zod";
 import { prisma } from "@fii/database";
@@ -200,6 +200,10 @@ subscribersRouter.post("/:id/plans", authorize("subscriber:update"), h(async (re
 subscribersRouter.post("/:id/plans/:mappingId/end", authorize("subscriber:update"), h(async (req, res) => {
   const b = parse(endPlanBody, req.body);
   res.json(await subscribers.endPlan(req.auth!.tenantId, req.params.id, req.params.mappingId, b.endDate));
+}));
+subscribersRouter.put("/:id/plans/:mappingId", authorize("subscriber:update"), h(async (req, res) => {
+  const b = parse(updateSubscriberPlanBody, req.body);
+  res.json(await subscribers.updateSubscriberPlan(req.auth!.tenantId, req.params.id, req.params.mappingId, b));
 }));
 for (const [path, status] of [["suspend", "SUSPENDED"], ["activate", "ACTIVE"], ["terminate", "TERMINATED"]] as const) {
   subscribersRouter.post(`/:id/${path}`, authorize("subscriber:update"), h(async (req, res) => {

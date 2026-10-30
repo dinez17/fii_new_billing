@@ -43,16 +43,16 @@ suite("party list filtering and global ranking", () => {
       const top = await rankParties(tenantId, type, { page: 1, limit: 1, sortBy: "outstanding", order: "desc" });
       expect(top.total).toBe(3);
       expect(top.items[0].id).toBe(ids[1]);
-      expect(top.items[0].outstanding.toFixed(2)).toBe(type === "CUSTOMER" ? "1.00" : "490.07");
+      expect(top.items[0].outstanding.toFixed(2)).toBe(type === "CUSTOMER" ? "501.10" : "490.07");
       expect((await rankParties(tenantId, type, { page: 1, limit: 1, sortBy: "invoiceCount", order: "desc" })).items[0]).toMatchObject({ id: ids[1], invoiceCount: type === "CUSTOMER" ? 1 : 2 });
       expect((await rankParties(tenantId, type, { page: 2, limit: 1, sortBy: "outstanding", order: "desc" })).items[0].id).toBe(ids[0]);
     });
     it(`${type}: combines status, balance and literal search and handles empty pages`, async () => {
       const ids = type === "CUSTOMER" ? customerIds : supplierIds;
       expect((await rankParties(tenantId, type, { page: 1, limit: 20, activity: "inactive", balance: "due" })).items.map((row) => row.id)).toEqual([ids[1]]);
-      expect((await rankParties(tenantId, type, { page: 1, limit: 20, activity: "active", balance: type === "CUSTOMER" ? "settled" : "credit", search: "_%" })).items.map((row) => row.id)).toEqual([ids[2]]);
-      expect((await rankParties(tenantId, type, { page: 1, limit: 20, balance: "settled" })).items.map((row) => row.id).sort()).toEqual((type === "CUSTOMER" ? [ids[0], ids[2]] : [ids[0]]).sort());
-      expect((await rankParties(tenantId, type, { page: 1, limit: 1, sortBy: "outstanding", order: "asc" })).items[0].id).toBe(type === "CUSTOMER" ? ids[0] : ids[2]);
+      expect((await rankParties(tenantId, type, { page: 1, limit: 20, activity: "active", balance: "credit", search: "_%" })).items.map((row) => row.id)).toEqual([ids[2]]);
+      expect((await rankParties(tenantId, type, { page: 1, limit: 20, balance: "settled" })).items.map((row) => row.id).sort()).toEqual([ids[0]]);
+      expect((await rankParties(tenantId, type, { page: 1, limit: 1, sortBy: "outstanding", order: "asc" })).items[0].id).toBe(ids[2]);
       expect(await rankParties(tenantId, type, { page: 10, limit: 1 })).toMatchObject({ items: [], total: 3 });
       expect(await rankParties(tenantId, type, { page: 1, limit: 20, activity: "inactive", balance: "credit" })).toMatchObject({ items: [], total: 0 });
     });

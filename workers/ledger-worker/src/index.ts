@@ -21,7 +21,7 @@ import { postInvoiceEdit, type InvoiceEdit } from "./invoice-edit.js";
 const log = createLogger("ledger-worker");
 
 type PayMode = Prisma.DayBookEntryCreateInput["mode"];
-interface InvoiceCreated { invoiceId: string; invoiceNumber: string; customerId: string; grandTotal: string; dueDate: string }
+interface InvoiceCreated { invoiceId: string; invoiceNumber: string; customerId: string; grandTotal: string; dueDate: string; invoiceDate?: string; fyCode?: string }
 interface PaymentSuccess { paymentId: string; customerId: string; amount: string; mode: PayMode; receiptNumber: string; paymentDate: string }
 interface NoteCreated { kind: "credit" | "debit"; noteId: string; noteNumber: string; customerId: string; invoiceNumber: string; total: string; noteDate: string }
 interface SalaryPaid { payslipId: string; employeeName: string; amount: string; mode: PayMode; month: string }
@@ -75,13 +75,14 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
     }
     case TOPICS.INVOICE_CREATED: {
       const p = event.payload as InvoiceCreated;
+      const entryDate = new Date(p.invoiceDate ?? event.occurredAt);
       await prisma.ledgerEntry.create({
         data: {
           tenantId,
           partyType: "CUSTOMER",
           partyId: p.customerId,
-          fyCode: await fyCodeFor(tenantId, new Date(event.occurredAt)),
-          entryDate: new Date(event.occurredAt),
+          fyCode: p.fyCode ?? await fyCodeFor(tenantId, entryDate),
+          entryDate,
           entryType: "INVOICE",
           refType: "INVOICE",
           refId: p.invoiceId,

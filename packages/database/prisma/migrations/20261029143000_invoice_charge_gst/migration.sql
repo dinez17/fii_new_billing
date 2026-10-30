@@ -1,0 +1,1 @@
+ALTER TABLE "Invoice" ADD COLUMN "chargeGst" BOOLEAN NOT NULL DEFAULT true;

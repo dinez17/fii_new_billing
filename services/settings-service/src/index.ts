@@ -54,7 +54,7 @@ const seriesBody = z.object({
   padding: z.coerce.number().int().min(3).max(10),
 });
 
-const app = express();
+export const app = express();
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 app.use(httpMetrics("settings-service"));
@@ -146,6 +146,7 @@ const SETTING_GROUPS: Record<string, { keys: string[]; secrets: string[] }> = {
     keys: ["INVOICE", "PROFORMA_INVOICE", "QUOTATION", "PURCHASE_ORDER", "RECEIPT", "CREDIT_NOTE", "DEBIT_NOTE"],
     secrets: [],
   },
+  INVOICE: { keys: ["template"], secrets: [] },
   INVENTORY: { keys: ["allowNegativeStock"], secrets: [] },
   GATEWAY_RAZORPAY: { keys: ["keyId", "keySecret", "webhookSecret", "enabled"], secrets: ["keySecret", "webhookSecret"] },
   GATEWAY_CASHFREE: { keys: ["appId", "secretKey", "webhookSecret", "enabled"], secrets: ["secretKey", "webhookSecret"] },
@@ -173,6 +174,9 @@ app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:updat
     if (!def.keys.includes(key)) throw badRequest(`Unknown key "${key}" for group ${req.params.group}`);
     if (req.params.group === "INVENTORY" && key === "allowNegativeStock" && value !== "true" && value !== "false") {
       throw badRequest("Allow negative stock must be true or false");
+    }
+    if (req.params.group === "INVOICE" && key === "template" && !["COMMERCIAL", "TALLY", "CLASSIC", "MODERN", "MINIMAL", "COMPACT", "TELECOM_STATEMENT", "SERVICE_TAX", "IT_SERVICES"].includes(value)) {
+      throw badRequest("Choose a valid invoice template");
     }
     const isSecret = def.secrets.includes(key);
     if (value === "••••••••" || (value === "" && isSecret)) continue; // masked/blank secret → keep existing
@@ -269,4 +273,4 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
 });
 
 const port = Number(process.env.SETTINGS_SERVICE_PORT ?? 8091);
-app.listen(port, () => log.info({ port }, "settings-service listening"));
+if (process.env.NODE_ENV !== "test") app.listen(port, () => log.info({ port }, "settings-service listening"));

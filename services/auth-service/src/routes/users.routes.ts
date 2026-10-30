@@ -23,6 +23,11 @@ usersRouter.put("/:id", authorize("user:update"), h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+usersRouter.delete("/:id", authorize("user:delete"), h(async (req, res) => {
+  await users.deleteUser(req.auth!.tenantId, req.auth!.sub, req.params.id);
+  res.json({ ok: true });
+}));
+
 usersRouter.post("/:id/reset-password", authorize("user:update"), h(async (req, res) => {
   const b = parse(resetPasswordBody, req.body);
   await users.resetUserPassword(req.auth!.tenantId, req.auth!.sub, req.params.id, b.newPassword);

@@ -13,11 +13,16 @@ declare global {
 }
 
 /** Verifies the Bearer token and attaches req.auth. */
-export function authenticate(req: Request, _res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return next(unauthorized("Missing bearer token"));
   try {
     req.auth = verifyAccessToken(header.slice(7));
+    const user = await prisma.user.findFirst({
+      where: { id: req.auth.sub, tenantId: req.auth.tenantId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!user) return next(unauthorized("Account disabled or deleted"));
     next();
   } catch {
     next(unauthorized("Invalid or expired token"));

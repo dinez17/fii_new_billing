@@ -1,6 +1,6 @@
 import { IconButton } from "../../components/IconButton";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
 import { EntitySelect, type ProductOption } from "../../components/EntitySelect";
@@ -28,20 +28,23 @@ function preview(items: Item[]) {
 }
 
 interface EditableInvoice {
+  chargeGst: boolean;
   id: string; invoiceNumber: string; status: string; amountPaid: string; customerId: string; subscriberId?: string | null;
   invoiceDate: string; dueDate: string; notes?: string | null; terms?: string | null; poNumber?: string | null;
-  customer: CustomerLite; subscriber?: { id: string; code: string; poNumber?: string | null } | null;
+  customer: CustomerLite; subscriber?: { id: string; code: string; poNumber?: string | null; chargeGst?: boolean } | null;
   items: Array<Omit<Item, "productId" | "hsnSac"> & { productId?: string | null; hsnSac?: string | null }>;
 }
 export function NewInvoicePage() {
+  const location = useLocation();
   const { id } = useParams();
   const invoice = useQuery({ queryKey: ["invoice-edit", id], enabled: !!id, queryFn: async () => (await api.get(`/invoices/${id}`)).data as EditableInvoice });
   if (id && invoice.isError) return <div className="error">{errMessage(invoice.error)}</div>;
   if (id && !invoice.data) return <p>Loading invoice…</p>;
   if (invoice.data && (invoice.data.status !== "UNPAID" || Number(invoice.data.amountPaid) > 0)) return <div className="error">Only unpaid invoices with no payments can be edited.</div>;
-  return <InvoiceEditor key={id ?? "new"} invoice={invoice.data} />;
+  return <InvoiceEditor key={id ?? "new"} invoice={invoice.data} defaultChargeGst={location.state?.chargeGst !== false} />;
 }
-function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
+function InvoiceEditor({ invoice, defaultChargeGst }: { invoice?: EditableInvoice; defaultChargeGst: boolean }) {
+  const [chargeGst, setChargeGst] = useState(invoice?.chargeGst ?? defaultChargeGst);
   const navigate = useNavigate();
   const canReadSubscribers = useAuth((state) => state.hasPerm("subscriber:read"));
   const [subscriberCode, setSubscriberCode] = useState(invoice?.subscriber?.code ?? "");
@@ -59,14 +62,17 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
   const subscriberOptions = useQuery({
     queryKey: ["invoice-subscribers", form.customerId, subscriberCode],
     enabled: canReadSubscribers && !!form.customerId,
-    queryFn: async () => (await api.get("/subscribers", { params: { customerId: form.customerId, search: subscriberCode || undefined, limit: 50 } })).data as { items: { id: string; code: string; poNumber: string | null }[] },
+    queryFn: async () => (await api.get("/subscribers", { params: { customerId: form.customerId, search: subscriberCode || undefined, limit: 50 } })).data as { items: { id: string; code: string; poNumber: string | null; chargeGst: boolean }[] },
   });
   const selectedSubscriber = subscriberOptions.data?.items.find((subscriber) => subscriber.code === subscriberCode) ?? (invoice?.customerId === form.customerId && invoice.subscriber?.code === subscriberCode ? invoice.subscriber : undefined);
+  const noGst = invoice ? !invoice.chargeGst : selectedSubscriber ? selectedSubscriber.chargeGst === false : !chargeGst;
+  const effectiveItems = noGst ? form.items.map((item) => ({ ...item, gstRate: "0" })) : form.items;
   const [productDetails, setProductDetails] = useState<Record<string, ProductOption>>({});
 
   const create = useMutation({
     mutationFn: async () => {
       const body = {
+        chargeGst: !noGst,
         customerId: form.customerId,
         subscriberId: selectedSubscriber?.id ?? (invoice ? null : undefined),
         poNumber: poNumber ?? selectedSubscriber?.poNumber ?? null,
@@ -74,7 +80,7 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
         dueDate: form.dueDate,
         notes: form.notes,
         terms: invoice ? form.terms : form.terms || undefined,
-        items: form.items.map((it) => ({
+        items: effectiveItems.map((it) => ({
           productId: it.productId || undefined,
           description: it.description, hsnSac: it.hsnSac || undefined,
           quantity: Number(it.quantity), unitPrice: Number(it.unitPrice),
@@ -108,7 +114,7 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
     });
   };
 
-  const p = preview(form.items);
+  const p = preview(effectiveItems);
   const valid = form.customerId && (!subscriberCode || !!selectedSubscriber) && form.items.length > 0 &&
     form.items.every((it) => it.description && Number(it.unitPrice) > 0 && Number(it.quantity) > 0);
 
@@ -121,6 +127,11 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
       </div>
 
       <div className="card">
+        <label>Invoice register</label>
+        <select aria-label="Invoice register" disabled={!!invoice || !!selectedSubscriber} value={noGst ? "WITHOUT_GST" : "GST"} onChange={(e) => setChargeGst(e.target.value === "GST")}>
+          <option value="GST">GST invoice</option><option value="WITHOUT_GST">Invoice without GST</option>
+        </select>
+        <small>{invoice ? "The invoice register and number are retained on edits." : selectedSubscriber ? "Uses the selected subscriber’s GST setting." : "Each register has its own number series."}</small>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
           <div>
             <label>Customer *</label>
@@ -138,6 +149,7 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
               <input aria-label="Subscriber code for invoice" list="invoice-subscriber-codes" value={subscriberCode} placeholder="Search subscriber code / PO…" onChange={(e) => setSubscriberCode(e.target.value)} />
               <datalist id="invoice-subscriber-codes">{subscriberOptions.data?.items.map((subscriber) => <option key={subscriber.id} value={subscriber.code}>{subscriber.poNumber ?? "No PO number"}</option>)}</datalist>
               {selectedSubscriber && <small>PO: {selectedSubscriber.poNumber ?? "Not set"}</small>}
+              {noGst && <small>Without GST — all invoice lines use zero tax.</small>}
               {subscriberCode && !selectedSubscriber && !subscriberOptions.isFetching && <small>Choose a matching subscriber code.</small>}
               {subscriberOptions.isError && <small className="error">{errMessage(subscriberOptions.error)}</small>}
           </div>}
@@ -157,7 +169,7 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
             </tr>
           </thead>
           <tbody>
-            {form.items.map((it, i) => {
+            {effectiveItems.map((it, i) => {
               const base = Number(it.quantity || 0) * Number(it.unitPrice || 0) - Number(it.discount || 0);
               const lineTotal = base + (base * Number(it.gstRate || 0)) / 100;
               const product = productDetails[it.productId];
@@ -171,14 +183,14 @@ function InvoiceEditor({ invoice }: { invoice?: EditableInvoice }) {
                       </div>
                     )}
                   </td>
-                  <td><input value={it.description} placeholder="Service / product description"
+                  <td><textarea rows={2} value={it.description} placeholder="Service / product description"
                     onChange={(e) => setItem(i, { description: e.target.value })} /></td>
                   <td><input value={it.hsnSac} placeholder="998599" onChange={(e) => setItem(i, { hsnSac: e.target.value })} /></td>
                   <td><input type="number" min="0" value={it.quantity} onChange={(e) => setItem(i, { quantity: e.target.value })} /></td>
                   <td><input type="number" min="0" value={it.unitPrice} onChange={(e) => setItem(i, { unitPrice: e.target.value })} /></td>
                   <td><input type="number" min="0" value={it.discount} onChange={(e) => setItem(i, { discount: e.target.value })} /></td>
                   <td>
-                    <select value={it.gstRate} onChange={(e) => setItem(i, { gstRate: e.target.value })}>
+                    <select disabled={noGst} value={it.gstRate} onChange={(e) => setItem(i, { gstRate: e.target.value })}>
                       <option>0</option><option>5</option><option>12</option><option>18</option><option>28</option>
                     </select>
                   </td>

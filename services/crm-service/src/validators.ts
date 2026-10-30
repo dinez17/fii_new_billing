@@ -52,33 +52,40 @@ export const billingCycle = z.coerce.number().int()
   .refine((n) => [1, 3, 6, 12].includes(n), "must be 1, 3, 6 or 12 months");
 
 export const subscriberCreateBody = z.object({
+  chargeGst: z.boolean().default(true),
   poNumber: z.string().trim().max(100).nullable().optional().transform((value) => value || null),
   customerId: z.string().uuid(),
   subscriberType: z.enum(["PREPAID", "POSTPAID"]),
   billingCycleMonths: billingCycle.default(1),
   plans: z.array(z.object({
     planId: z.string().uuid(),
+    location: z.string().trim().max(100).optional(),
     priceOverride: z.coerce.number().positive().optional(),
-  })).min(1).max(10),
+  })).min(1).max(50),
   activationDate: z.coerce.date(),
   installAddress: z.string().max(500).optional(),
   meta: z.record(z.string(), z.string()).optional(),
-}).superRefine((b, ctx) => {
-  const ids = b.plans.map((p) => p.planId);
-  if (new Set(ids).size !== ids.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Duplicate plans selected" });
-  }
 });
 
 export const addPlanBody = z.object({
   planId: z.string().uuid(),
+  location: z.string().trim().max(100).optional(),
   startDate: z.coerce.date(),
   priceOverride: z.coerce.number().positive().optional(),
 });
 
+export const updatePlanLocationBody = z.object({ location: z.string().trim().max(100).nullable() });
+export const updateSubscriberPlanBody = z.object({
+  planId: z.string().uuid().optional(),
+  location: z.string().trim().max(100).nullable().optional(),
+  priceOverride: z.coerce.number().positive().nullable().optional(),
+  startDate: z.coerce.date().optional(),
+}).refine((value) => Object.keys(value).length > 0, "No connection changes supplied");
+
 export const endPlanBody = z.object({ endDate: z.coerce.date() });
 
 export const subscriberUpdateBody = z.object({
+  chargeGst: z.boolean().optional(),
   subscriberType: z.enum(["PREPAID", "POSTPAID"]).optional(),
   poNumber: z.string().trim().max(100).nullable().transform((value) => value || null).optional(),
   installAddress: z.string().max(500).optional(),
