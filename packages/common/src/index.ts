@@ -11,3 +11,5 @@ export {
   domainEvents, dlqDepth, type HealthCheck,
 } from "./observability.js";
 export { runPgDump, runPgRestore, pgDumpAvailable } from "./backup.js";
+
+export * from "./non-gst-company.js";

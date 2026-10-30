@@ -3,7 +3,7 @@ import { prisma } from "@fii/database";
 import { addPlan, createSubscriber, endPlan, getSubscriber, updatePlanLocation, updateSubscriberPlan } from "../src/services/subscriber.service.js";
 import { addPlanBody, subscriberCreateBody, updateSubscriberPlanBody } from "../src/validators.js";
 import { processRun } from "../../../workers/billing-worker/src/generate.js";
-import { buildInvoicePdfBuffer } from "@fii/pdf";
+import { buildReceiptPdfBuffer, buildNotePdfBuffer, buildInvoicePdfBuffer } from "@fii/pdf";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const suite = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
@@ -19,6 +19,11 @@ suite("repeated subscription plans for independent locations", () => {
     await prisma.billingRunItem.deleteMany({ where: { billingRun: { tenantId } } });
     await prisma.billingRun.deleteMany({ where: { tenantId } });
     await prisma.outboxEvent.deleteMany({ where: { tenantId } });
+    await prisma.receipt.deleteMany({ where: { tenantId } });
+    await prisma.paymentAllocation.deleteMany({ where: { payment: { tenantId } } });
+    await prisma.payment.deleteMany({ where: { tenantId } });
+    await prisma.creditNote.deleteMany({ where: { tenantId } });
+    await prisma.debitNote.deleteMany({ where: { tenantId } });
     await prisma.invoiceItem.deleteMany({ where: { invoice: { tenantId } } });
     await prisma.invoice.deleteMany({ where: { tenantId } });
     await prisma.subscriberPlan.deleteMany({ where: { tenantId } });
@@ -139,6 +144,28 @@ suite("repeated subscription plans for independent locations", () => {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "CANCELLED" } });
     writeFileSync("output/pdf/reference-cancelled.pdf", (await buildInvoicePdfBuffer(tenantId, invoice.id)).buffer);
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } })).grandTotal.toString()).toBe("328");
+  });
+
+  it("uses the separate company across all without-GST formats and related documents", async () => {
+    const profile = { enabled: "true", name: "Independent Network Services", legalName: "Independent Network Services", addressLine1: "18, Service Road", city: "Dindigul", stateCode: "33", pincode: "624001", email: "nongst@example.test", bankName: "Separate Services Bank", bankAccountNo: "009988776655", bankBranch: "Dindigul", bankIfsc: "TMBL0000283" };
+    await prisma.setting.createMany({ data: Object.entries(profile).map(([key, value]) => ({ tenantId, group: "NON_GST_COMPANY", key, value })) });
+    const ng = await prisma.invoice.findFirstOrThrow({ where: { tenantId, chargeGst: false, invoiceType: "SUBSCRIPTION" } });
+    const gst = await prisma.invoice.findFirstOrThrow({ where: { tenantId, chargeGst: true } });
+    for (const format of ["COMMERCIAL", "TALLY", "CLASSIC", "MODERN", "MINIMAL", "COMPACT", "TELECOM_STATEMENT", "SERVICE_TAX", "IT_SERVICES"]) {
+      await prisma.setting.update({ where: { tenantId_group_key: { tenantId, group: "INVOICE", key: "template" } }, data: { value: format } });
+      const pdf = await buildInvoicePdfBuffer(tenantId, ng.id);
+      expect(pdf.invoice.tenantId).toBe(tenantId);
+      writeFileSync(`output/pdf/non-gst-company-${format.toLowerCase()}.pdf`, pdf.buffer);
+    }
+    writeFileSync("output/pdf/gst-original-company.pdf", (await buildInvoicePdfBuffer(tenantId, gst.id)).buffer);
+    const payment = await prisma.payment.create({ data: { tenantId, customerId, fyCode: "2026-27", amount: 100, mode: "CASH", allocations: { create: { invoiceId: ng.id, amount: 100 } } } });
+    const receipt = await prisma.receipt.create({ data: { tenantId, paymentId: payment.id, receiptNumber: "NG-RECEIPT", fyCode: "2026-27" } });
+    writeFileSync("output/pdf/non-gst-company-receipt.pdf", (await buildReceiptPdfBuffer(tenantId, receipt.id)).buffer);
+    await prisma.paymentAllocation.create({ data: { paymentId: payment.id, invoiceId: gst.id, amount: 1 } });
+    writeFileSync("output/pdf/mixed-company-receipt.pdf", (await buildReceiptPdfBuffer(tenantId, receipt.id)).buffer);
+    const note = await prisma.creditNote.create({ data: { tenantId, invoiceId: ng.id, customerId, fyCode: "2026-27", noteNumber: "NG-CREDIT", noteDate: new Date("2026-10-01"), reason: "Fixture", taxableValue: 10, total: 10, items: [] } });
+    writeFileSync("output/pdf/non-gst-company-credit.pdf", (await buildNotePdfBuffer(tenantId, note.id, "credit")).buffer);
+    expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })).name).toBe("First Idea Infotech");
   });
 
 });

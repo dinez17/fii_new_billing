@@ -39,4 +39,17 @@ suite("tenant invoice format settings", () => {
     expect(response.status).toBe(400);
     expect(await (await fetch(base, { headers: { "x-test-tenant": tenant } })).json()).toEqual({ template: "IT_SERVICES" });
   });
+  it("saves the without-GST profile atomically and isolates it by tenant", async () => {
+    const url = base.replace(/INVOICE$/, "NON_GST_COMPANY");
+    const headers = { "Content-Type": "application/json", "x-test-tenant": tenant };
+    expect((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ enabled: "true", name: "Separate Services", bankName: "NG Bank", bankAccountNo: "001234", bankIfsc: "tmbl0000283" }) })).status).toBe(200);
+    expect(await (await fetch(url, { headers })).json()).toMatchObject({ enabled: "true", name: "Separate Services", bankAccountNo: "001234", bankIfsc: "TMBL0000283" });
+    expect(await (await fetch(url, { headers: { "x-test-tenant": other } })).json()).toEqual({});
+    expect((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ name: "Wrong replacement", bankIfsc: "INVALID" }) })).status).toBe(400);
+    expect(await (await fetch(url, { headers })).json()).toMatchObject({ name: "Separate Services", bankIfsc: "TMBL0000283" });
+    expect((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ gstin: "33AAACT2664C1ZS" }) })).status).toBe(400);
+    expect((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ enabled: "false" }) })).status).toBe(200);
+    expect(await (await fetch(url, { headers })).json()).toMatchObject({ enabled: "false", name: "Separate Services" });
+  });
+
 });

@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import type { Writable } from "node:stream";
 import { prisma } from "@fii/database";
 import { notFound } from "@fii/common";
+import { loadInvoiceCompany } from "./invoice-company.js";
 import { amountInWords } from "./amount-words.js";
 import { posName } from "./invoice.js";
 
@@ -36,7 +37,7 @@ async function loadNote(tenantId: string, noteId: string, kind: NotePdfKind) {
     include: { invoice: { include: { customer: true } } },
   });
   if (!note) throw notFound(kind === "credit" ? "Credit note" : "Debit note");
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const tenant = await loadInvoiceCompany(tenantId, note.invoice.chargeGst);
   return { note, tenant };
 }
 

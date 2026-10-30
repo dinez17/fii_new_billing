@@ -2,7 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z, type ZodTypeAny } from "zod";
-import { AppError, badRequest, createLogger, encryptSecret, isValidGstin, notFound, httpMetrics, mountOps } from "@fii/common";
+import { AppError, NON_GST_COMPANY_FIELDS, nonGstCompanySchema, badRequest, createLogger, encryptSecret, isValidGstin, notFound, httpMetrics, mountOps } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
 import { prisma } from "@fii/database";
 import { getTenantLicense } from "./license.service.js";
@@ -146,6 +146,7 @@ const SETTING_GROUPS: Record<string, { keys: string[]; secrets: string[] }> = {
     keys: ["INVOICE", "PROFORMA_INVOICE", "QUOTATION", "PURCHASE_ORDER", "RECEIPT", "CREDIT_NOTE", "DEBIT_NOTE"],
     secrets: [],
   },
+  NON_GST_COMPANY: { keys: ["enabled", ...NON_GST_COMPANY_FIELDS], secrets: [] },
   INVOICE: { keys: ["template"], secrets: [] },
   INVENTORY: { keys: ["allowNegativeStock"], secrets: [] },
   GATEWAY_RAZORPAY: { keys: ["keyId", "keySecret", "webhookSecret", "enabled"], secrets: ["keySecret", "webhookSecret"] },
@@ -169,7 +170,12 @@ app.get("/api/v1/settings/group/:group", authenticate, authorize("settings:read"
 app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:update"), h(async (req, res) => {
   const def = SETTING_GROUPS[req.params.group];
   if (!def) throw notFound("Setting group");
-  const body = parse(groupBody, req.body);
+  let body = parse(groupBody, req.body);
+  if (req.params.group === "NON_GST_COMPANY") {
+    const previous = await prisma.setting.findMany({ where: { tenantId: req.auth!.tenantId, group: "NON_GST_COMPANY" } });
+    body = parse(nonGstCompanySchema, { ...Object.fromEntries(previous.map(row => [row.key, row.value])), ...body });
+  }
+  const writes = [];
   for (const [key, value] of Object.entries(body)) {
     if (!def.keys.includes(key)) throw badRequest(`Unknown key "${key}" for group ${req.params.group}`);
     if (req.params.group === "INVENTORY" && key === "allowNegativeStock" && value !== "true" && value !== "false") {
@@ -181,7 +187,7 @@ app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:updat
     const isSecret = def.secrets.includes(key);
     if (value === "••••••••" || (value === "" && isSecret)) continue; // masked/blank secret → keep existing
 
-    await prisma.setting.upsert({
+    writes.push(prisma.setting.upsert({
       where: { tenantId_group_key: { tenantId: req.auth!.tenantId, group: req.params.group, key } },
       create: {
         tenantId: req.auth!.tenantId,
@@ -192,8 +198,9 @@ app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:updat
         updatedById: req.auth!.sub,
       },
       update: { value: isSecret ? encryptSecret(value) : value, updatedById: req.auth!.sub },
-    });
+    }));
   }
+  await prisma.$transaction(writes);
   res.json({ ok: true });
 }));
 

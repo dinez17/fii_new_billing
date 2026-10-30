@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import type { Writable } from "node:stream";
 import { prisma } from "@fii/database";
 import { notFound } from "@fii/common";
+import { loadInvoiceCompany } from "./invoice-company.js";
 import { amountInWords } from "./amount-words.js";
 
 const inr = (v: unknown) => `Rs. ${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -15,13 +16,14 @@ async function loadReceipt(tenantId: string, receiptId: string) {
       payment: {
         include: {
           customer: true,
-          allocations: { include: { invoice: { select: { invoiceNumber: true, grandTotal: true } } } },
+          allocations: { include: { invoice: { select: { invoiceNumber: true, grandTotal: true, chargeGst: true } } } },
         },
       },
     },
   });
   if (!receipt) throw notFound("Receipt");
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const onlyWithoutGst = receipt.payment.allocations.length > 0 && receipt.payment.allocations.every(a => !a.invoice.chargeGst);
+  const tenant = await loadInvoiceCompany(tenantId, !onlyWithoutGst);
   return { receipt, tenant };
 }
 
@@ -167,7 +169,7 @@ export async function streamReceiptPdf(
 ): Promise<ReceiptWithRelations> {
   const { receipt, tenant } = await loadReceipt(tenantId, receiptId);
   onLoaded?.(receipt);
-  const doc = new PDFDocument({ size: "A5", layout: "landscape", margin: 36 });
+  const doc = new PDFDocument({ size: "A5", layout: "landscape", margin: 0 });
   doc.pipe(out);
   renderReceipt(doc, receipt, tenant);
   doc.end();
@@ -176,7 +178,7 @@ export async function streamReceiptPdf(
 
 export async function buildReceiptPdfBuffer(tenantId: string, receiptId: string): Promise<{ buffer: Buffer; receipt: ReceiptWithRelations }> {
   const { receipt, tenant } = await loadReceipt(tenantId, receiptId);
-  const doc = new PDFDocument({ size: "A5", layout: "landscape", margin: 36 });
+  const doc = new PDFDocument({ size: "A5", layout: "landscape", margin: 0 });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
     doc.on("data", (c: Buffer) => chunks.push(c));

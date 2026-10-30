@@ -5,15 +5,16 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
+import { NonGstCompanyTab } from "./NonGstCompanyTab";
 import { InvoiceTemplatesTab } from "./InvoiceTemplatesTab";
 import { LicenseTab } from "./LicenseTab";
 import { LegacyImportTab } from "./LegacyImportTab";
 import { isPlatformConsole } from "../../lib/console";
 
-type Tab = "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
+type Tab = "nonGst" | "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
 
 const TAB_LABELS: Record<Tab, string> = {
-  invoice: "Invoice format", company: "Company profile", fy: "Financial years", series: "Number series",
+  nonGst: "Without-GST company", invoice: "Invoice format", company: "Company profile", fy: "Financial years", series: "Number series",
   license: "License",
   legacy: "Legacy import",
   terms: "Terms & Conditions", inventory: "Inventory", gateway: "Payment gateway", smtp: "Email (SMTP)", security: "My security",
@@ -26,7 +27,7 @@ export function SettingsPage() {
     <>
       <h2 className="page-title">Settings</h2>
       <div className="toolbar">
-        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
           <button key={t} className={tab === t ? "primary" : ""} onClick={() => setTab(t)}>
             {TAB_LABELS[t]}
           </button>
@@ -34,6 +35,7 @@ export function SettingsPage() {
       </div>
       {tab === "company" && <CompanyTab />}
       {tab === "invoice" && <InvoiceTemplatesTab />}
+      {tab === "nonGst" && !isPlatformConsole && <NonGstCompanyTab />}
       {tab === "license" && !isPlatformConsole && <LicenseTab />}
       {tab === "legacy" && !isPlatformConsole && canReadLegacy && <LegacyImportTab />}
       {tab === "fy" && <FyTab />}

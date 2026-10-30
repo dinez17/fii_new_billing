@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import type { Writable } from "node:stream";
 import { prisma } from "@fii/database";
 import { notFound } from "@fii/common";
+import { loadInvoiceCompany } from "./invoice-company.js";
 import { renderCommercialInvoice } from "./invoice-layout.js";
 
 const STATES: Record<string, string> = {
@@ -23,7 +24,7 @@ async function loadInvoice(tenantId: string, invoiceId: string) {
     include: { items: true, customer: true },
   });
   if (!invoice) throw notFound("Invoice");
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const tenant = await loadInvoiceCompany(tenantId, invoice.chargeGst);
   const setting = await prisma.setting.findUnique({ where: { tenantId_group_key: { tenantId, group: "INVOICE", key: "template" } }, select: { value: true } });
   return { invoice, tenant, template: setting?.value ?? "COMMERCIAL" };
 }
