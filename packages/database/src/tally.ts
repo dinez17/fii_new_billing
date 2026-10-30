@@ -235,7 +235,10 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
   const currentPnl = await pnlNumbers(tenantId, fyStart, asOn);
   const closingStock = pnl.closingStock;
   const profitAndLoss = currentPnl.netProfit;
-  const retainedEarnings = r2(pnl.netProfit - profitAndLoss);
+  // No prior period exists when the reporting basis is this FY start. Keep
+  // that zero exact even if a new posting lands between the report reads.
+  const retainedEarnings = profitStart && dayStart(profitStart).getTime() === dayStart(fyStart).getTime()
+    ? 0 : r2(pnl.netProfit - profitAndLoss);
 
   // ── Build the two sides
   const liabilities: TallyLine[] = [];
