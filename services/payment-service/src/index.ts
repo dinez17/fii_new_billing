@@ -29,6 +29,10 @@ paymentsRouter.use(authenticate);
 paymentsRouter.get("/", authorize("payment:read"), h(async (req, res) => {
   res.json(await payments.listPayments(req.auth!.tenantId, parse(payments.paymentListQuery, req.query)));
 }));
+paymentsRouter.get("/tds-report", authorize("payment:read"), h(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await payments.tdsReport(req.auth!.tenantId, parse(payments.tdsReportQuery, req.query)));
+}));
 paymentsRouter.get("/:id", authorize("payment:read"), h(async (req, res) => {
   res.json(await payments.getPayment(req.auth!.tenantId, req.params.id));
 }));

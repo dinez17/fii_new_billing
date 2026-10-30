@@ -1,3 +1,4 @@
+import { TdsReport } from "./TdsReport";
 import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
@@ -12,7 +13,7 @@ import { TransactionFilters, useTransactionPeriod } from "../../components/Trans
 interface OpenInvoice { id: string; invoiceNumber: string; invoiceDate: string; grandTotal: string; amountPaid: string; creditedAmount?: string; status: string }
 const invBalance = (i: OpenInvoice) => Number(i.grandTotal) - Number(i.amountPaid) - Number(i.creditedAmount ?? 0);
 interface PaymentRow {
-  id: string; amount: string; mode: string; paymentDate: string; reference?: string; status: string;
+  id: string; amount: string; tdsAmount: string; mode: string; paymentDate: string; reference?: string; status: string;
   customer: { name: string; phone: string };
   receipt?: { id: string; receiptNumber: string } | null;
   allocations: { amount: string; invoice: { invoiceNumber: string } }[];
@@ -23,6 +24,7 @@ const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFra
 export function PaymentsPage() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
+  const [showTds, setShowTds] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const period = useTransactionPeriod(() => setPage(1));
@@ -33,8 +35,11 @@ export function PaymentsPage() {
   const [form, setForm] = useState({
     customerId: "",
     amount: "",
+    tdsAmount: "",
+    tdsSection: "",
+    tdsAllocations: {} as Record<string, string>,
     mode: "CASH",
-    paymentDate: new Date().toISOString().slice(0, 10),
+    paymentDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
     reference: "",
     allocations: {} as Record<string, string>, // invoiceId → amount
   });
@@ -49,26 +54,36 @@ export function PaymentsPage() {
 
   const openInvoices = useQuery({
     queryKey: ["open-invoices", form.customerId],
-    queryFn: async () => {
-      const { data } = await api.get("/invoices", { params: { page: 1, limit: 100, customerId: form.customerId } });
-      return (data.items as OpenInvoice[]).filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
+    queryFn: async ({ signal }) => {
+      const rows: OpenInvoice[] = [];
+      for (let page = 1; ; page++) {
+        const { data } = await api.get("/invoices", { params: { page, limit: 100, customerId: form.customerId, status: "OUTSTANDING" }, signal });
+        rows.push(...data.items);
+        if (data.items.length < 100 || rows.length >= data.total) break;
+      }
+      return rows.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
     },
     enabled: creating && !!form.customerId,
   });
 
   const allocated = Object.values(form.allocations).reduce((s, v) => s + Number(v || 0), 0);
   const amount = Number(form.amount || 0);
+  const tds = Number(form.tdsAmount || 0);
+  const allocatedTds = Object.values(form.tdsAllocations).reduce((sum, value) => sum + Number(value || 0), 0);
 
   function autoAllocate() {
-    let left = amount;
+    let left = amount, tdsLeft = tds;
+    const tdsAlloc: Record<string, string> = {};
     const alloc: Record<string, string> = {};
-    for (const inv of openInvoices.data ?? []) {
-      if (left <= 0) break;
+    for (const inv of [...(openInvoices.data ?? [])].sort((a,b) => a.invoiceDate.localeCompare(b.invoiceDate) || a.invoiceNumber.localeCompare(b.invoiceNumber))) {
+      if (left <= 0 && tdsLeft <= 0) break;
       const balance = invBalance(inv);
       const take = Math.min(left, balance);
       if (take > 0) { alloc[inv.id] = take.toFixed(2); left -= take; }
+      const withheld = Math.min(tdsLeft, balance - take);
+      if (withheld > 0) { tdsAlloc[inv.id] = withheld.toFixed(2); tdsLeft -= withheld; }
     }
-    setForm({ ...form, allocations: alloc });
+    setForm({ ...form, allocations: alloc, tdsAllocations: tdsAlloc });
   }
 
   const create = useMutation({
@@ -76,19 +91,24 @@ export function PaymentsPage() {
       await api.post("/payments", {
         customerId: form.customerId,
         amount,
+        tdsAmount: tds,
+        tdsSection: tds > 0 ? form.tdsSection || undefined : undefined,
         mode: form.mode,
         paymentDate: form.paymentDate,
         reference: form.reference || undefined,
-        allocations: Object.entries(form.allocations)
-          .filter(([, v]) => Number(v) > 0)
-          .map(([invoiceId, v]) => ({ invoiceId, amount: Number(v) })),
+        allocations: [...new Set([...Object.keys(form.allocations), ...Object.keys(form.tdsAllocations)])]
+          .map(invoiceId => ({ invoiceId, amount: Number(form.allocations[invoiceId] || 0), tdsAmount: Number(form.tdsAllocations[invoiceId] || 0) }))
+          .filter(a => a.amount + a.tdsAmount > 0),
       });
     },
     onSuccess: () => {
       setCreating(false); setError("");
-      setForm({ ...form, customerId: "", amount: "", reference: "", allocations: {} });
+      setForm({ ...form, customerId: "", amount: "", tdsAmount: "", tdsSection: "", reference: "", allocations: {}, tdsAllocations: {} });
       qc.invalidateQueries({ queryKey: ["payments"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["tds-report"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (err) => setError(errMessage(err)),
   });
@@ -101,6 +121,8 @@ export function PaymentsPage() {
     } catch (err) { alert(errMessage(err)); }
   }
 
+  if (showTds) return <><button onClick={() => setShowTds(false)}>← Payments</button><TdsReport /></>;
+
   return (
     <>
       <h2 className="page-title">Payments</h2>
@@ -111,6 +133,7 @@ export function PaymentsPage() {
         <select aria-label="Payment status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option><option>SUCCESS</option><option>INITIATED</option><option>FAILED</option><option>REFUNDED</option></select>
         <TransactionFilters period={period} />
         <div className="spacer" />
+        <button onClick={() => setShowTds(true)}>TDS report</button>
         {hasPerm("payment:create") && (
           <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ Record Payment</button>
         )}
@@ -118,7 +141,7 @@ export function PaymentsPage() {
 
       <table>
         <thead>
-          <tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Amount</th><th>Mode</th><th>Against</th><th /></tr>
+          <tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Money received</th><th>TDS deducted</th><th>Mode</th><th>Against</th><th /></tr>
         </thead>
         <tbody>
           {list.data?.items.map((p) => (
@@ -126,14 +149,14 @@ export function PaymentsPage() {
               <td><code>{p.receipt?.receiptNumber ?? "—"}</code></td>
               <td>{formatDate(p.paymentDate)}</td>
               <td>{p.customer.name}</td>
-              <td>{inr(p.amount)}</td>
+              <td>{inr(p.amount)}</td><td>{inr(p.tdsAmount ?? 0)}</td>
               <td><span className="badge">{p.mode}</span>{p.reference && <span style={{ color: "var(--muted)", marginLeft: 6, fontSize: 12 }}>{p.reference}</span>}</td>
               <td style={{ fontSize: 12 }}>{p.allocations.map((a) => a.invoice.invoiceNumber).join(", ")}</td>
               <td>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}</td>
             </tr>
           ))}
           {list.data && list.data.items.length === 0 && (
-            <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No payments recorded yet.</td></tr>
+            <tr><td colSpan={8} style={{ color: "var(--muted)" }}>No payments recorded yet.</td></tr>
           )}
         </tbody>
       </table>
@@ -147,17 +170,22 @@ export function PaymentsPage() {
       )}
 
       {creating && (
-        <div className="modal-overlay" onClick={() => setCreating(false)}>
-          <div className="modal" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
-            <h3>Record payment</h3>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="payment-entry-title" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
+            <h3 id="payment-entry-title">Record payment</h3>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
               <div>
                 <label>Customer *</label>
-                <EntitySelect kind="customers" value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id, allocations: {} })} />
+                <EntitySelect kind="customers" value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id, allocations: {}, tdsAllocations: {} })} />
               </div>
-              <div><label>Amount ₹ *</label>
-                <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
+              <div><label htmlFor="payment-cash">Money received ₹ *</label>
+                <input id="payment-cash" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
             </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div><label htmlFor="payment-tds">TDS deducted ₹</label><input id="payment-tds" type="number" min="0" step="0.01" value={form.tdsAmount} onChange={(e) => setForm({ ...form, tdsAmount: e.target.value, tdsAllocations: {} })} /></div>
+              <div><label htmlFor="payment-tds-section">TDS section / reference (optional)</label><input id="payment-tds-section" maxLength={30} value={form.tdsSection} onChange={(e) => setForm({ ...form, tdsSection: e.target.value })} /></div>
+            </div>
+            <p className="document-help">Enter actual money received separately. TDS is a non-cash settlement and must be allocated to invoices. Enter 0 received for a TDS-only entry. Settlement: {inr(amount + tds)}.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div>
                 <label>Mode</label>
@@ -167,7 +195,7 @@ export function PaymentsPage() {
               </div>
               <div><label>Date</label>
                 <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} /></div>
-              <div><label>Reference {(form.mode === "CHEQUE" || form.mode === "BANK_TRANSFER") && "*"}</label>
+              <div><label>Reference {amount > 0 && (form.mode === "CHEQUE" || form.mode === "BANK_TRANSFER") && "*"}</label>
                 <input placeholder="Cheque no / UTR" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
             </div>
 
@@ -176,10 +204,10 @@ export function PaymentsPage() {
                 <div className="toolbar" style={{ marginTop: 12, marginBottom: 4 }}>
                   <label style={{ margin: 0 }}>Allocate to invoices</label>
                   <div className="spacer" />
-                  <button className="small" disabled={!amount} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
+                  <button className="small" disabled={amount + tds <= 0} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
                 </div>
                 <table style={{ fontSize: 13 }}>
-                  <thead><tr><th>Invoice</th><th>Date</th><th>Total</th><th>Balance</th><th style={{ width: 130 }}>Allocate ₹</th></tr></thead>
+                  <thead><tr><th>Invoice</th><th>Date</th><th>Total</th><th>Balance</th><th style={{ width: 130 }}>Cash ₹</th><th style={{ width: 110 }}>TDS ₹</th></tr></thead>
                   <tbody>
                     {openInvoices.data?.map((inv) => {
                       const balance = invBalance(inv);
@@ -193,16 +221,17 @@ export function PaymentsPage() {
                             <input type="number" value={form.allocations[inv.id] ?? ""}
                               onChange={(e) => setForm({ ...form, allocations: { ...form.allocations, [inv.id]: e.target.value } })} />
                           </td>
+                          <td><input type="number" min="0" step="0.01" aria-label={`TDS for ${inv.invoiceNumber}`} value={form.tdsAllocations[inv.id] ?? ""} onChange={(e) => setForm({ ...form, tdsAllocations: { ...form.tdsAllocations, [inv.id]: e.target.value } })} /></td>
                         </tr>
                       );
                     })}
                     {openInvoices.data?.length === 0 && (
-                      <tr><td colSpan={5} style={{ color: "var(--muted)" }}>No open invoices for this customer.</td></tr>
+                      <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No open invoices for this customer.</td></tr>
                     )}
                   </tbody>
                 </table>
-                <div style={{ textAlign: "right", marginTop: 8, color: allocated > amount + 0.001 ? "var(--danger)" : "var(--ok)" }}>
-                  Allocated {inr(allocated)} of {inr(amount)}
+                <div style={{ textAlign: "right", marginTop: 8, color: allocated > amount + 0.001 || Math.abs(allocatedTds - tds) > 0.001 ? "var(--danger)" : "var(--ok)" }}>
+                  Cash allocated {inr(allocated)} of {inr(amount)} · TDS allocated {inr(allocatedTds)} of {inr(tds)}
                   {amount - allocated > 0.001 && (
                     <span style={{ color: "var(--muted)" }}> · {inr(amount - allocated)} on account (reduces outstanding)</span>
                   )}
@@ -210,11 +239,12 @@ export function PaymentsPage() {
               </>
             )}
 
+            {openInvoices.isError && <div className="error">{errMessage(openInvoices.error)}</div>}
             {error && <div className="error">{error}</div>}
             <div className="actions">
               <button onClick={() => setCreating(false)}>Cancel</button>
               <button className="primary"
-                disabled={create.isPending || !form.customerId || !amount || allocated > amount + 0.001}
+                disabled={create.isPending || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
                 onClick={() => create.mutate()}>
                 {create.isPending ? "Saving…" : "Record payment"}
               </button>

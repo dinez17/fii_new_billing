@@ -204,7 +204,7 @@ export function NotesPage() {
       )}
 
       {viewId && (
-        <div className="modal-overlay" onClick={() => setViewId(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setViewId(null)}>
           <div className="modal" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
             {detail.isLoading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
             {detail.data && (
@@ -266,7 +266,7 @@ export function NotesPage() {
       )}
 
       {creating && (
-        <div className="modal-overlay" onClick={() => setCreating(false)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
           <div className="modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
             <h3>New {kind === "credit" ? "Sales Return (Credit Note)" : "Debit Note"}</h3>
             <label>Find invoice</label>

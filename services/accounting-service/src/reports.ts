@@ -18,7 +18,7 @@ reportsRouter.get("/sales", authorize("report:read"), h(async (req, res) => {
   const where: Prisma.InvoiceWhereInput = {
     tenantId, status: { not: "CANCELLED" }, invoiceDate: rangeWhere(q.from, q.to),
   };
-  const [rows, agg] = await Promise.all([
+  const [rows, agg, tds] = await Promise.all([
     prisma.invoice.findMany({
       where, orderBy: { invoiceDate: "asc" }, take: 2000,
       select: {
@@ -28,13 +28,14 @@ reportsRouter.get("/sales", authorize("report:read"), h(async (req, res) => {
       },
     }),
     prisma.invoice.aggregate({ where, _sum: { taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, amountPaid: true }, _count: true }),
+    prisma.paymentAllocation.aggregate({ where: { invoice: where, payment: { tenantId, status: "SUCCESS" } }, _sum: { tdsAmount: true } }),
   ]);
   res.json({
     range: { from: q.from, to: q.to },
     summary: {
       count: agg._count,
       taxableValue: n(agg._sum.taxableValue), cgst: n(agg._sum.cgst), sgst: n(agg._sum.sgst),
-      igst: n(agg._sum.igst), grandTotal: n(agg._sum.grandTotal), collected: n(agg._sum.amountPaid),
+      igst: n(agg._sum.igst), grandTotal: n(agg._sum.grandTotal), collected: n(agg._sum.amountPaid) - n(tds._sum.tdsAmount), tdsDeducted: n(tds._sum.tdsAmount),
       outstanding: Math.round((n(agg._sum.grandTotal) - n(agg._sum.amountPaid)) * 100) / 100,
     },
     rows,
@@ -164,10 +165,10 @@ reportsRouter.get("/profit-loss", authorize("report:read"), h(async (req, res) =
   const tenantId = req.auth!.tenantId;
   const inv = rangeWhere(q.from, q.to);
   const [sales, creditNotes, debitNotes, purchases, purchaseReturns, expenseByCat] = await Promise.all([
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: inv }, _sum: { taxableValue: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: inv }, _sum: { taxableValue: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: inv }, _sum: { taxableValue: true } }),
     prisma.expense.groupBy({ by: ["categoryId"], where: { tenantId, status: "RECORDED", expenseDate: inv }, _sum: { amount: true } }),
   ]);

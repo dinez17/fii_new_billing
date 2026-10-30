@@ -114,7 +114,7 @@ function renderReceipt(doc: PDFKit.PDFDocument, receipt: Loaded["receipt"], tena
   center("#", cols.n[0], cols.n[1], thTop + 4);
   center("Against Invoice", cols.inv[0], cols.inv[1], thTop + 4);
   center("Invoice Amount", cols.total[0], cols.total[1], thTop + 4);
-  center("Amount Received", cols.alloc[0], cols.alloc[1], thTop + 4);
+  center(Number(p.tdsAmount ?? 0) > 0 ? "Cash received / TDS" : "Amount Received", cols.alloc[0], cols.alloc[1], thTop + 4);
   line(L, thTop + 16, R, thTop + 16);
 
   const tableBottom = B - 96;
@@ -129,7 +129,7 @@ function renderReceipt(doc: PDFKit.PDFDocument, receipt: Loaded["receipt"], tena
       center(a.invoice.invoiceNumber, cols.inv[0], cols.inv[1], ry, 9, false);
       center(inr(a.invoice.grandTotal), cols.total[0], cols.total[1], ry, 9, false);
       doc.font("Helvetica-Bold");
-      center(inr(a.amount), cols.alloc[0], cols.alloc[1], ry, 9, true);
+      center(Number(a.tdsAmount ?? 0) > 0 ? `${inr(a.amount)} / TDS ${inr(a.tdsAmount)}` : inr(a.amount), cols.alloc[0], cols.alloc[1], ry, Number(a.tdsAmount ?? 0) > 0 ? 7 : 9, true);
       ry += 15;
     });
   }
@@ -144,6 +144,10 @@ function renderReceipt(doc: PDFKit.PDFDocument, receipt: Loaded["receipt"], tena
   doc.rect(340, tableBottom + 5, R - 340 - 6, 24).lineWidth(0.8).strokeColor("#000").stroke();
   doc.font("Helvetica-Bold").fontSize(10).text("AMOUNT RECEIVED", 348, tableBottom + 12);
   doc.font("Helvetica-Bold").fontSize(11).text(inr(p.amount), 348, tableBottom + 11, { width: R - 348 - 12, align: "right" });
+
+  if (Number(p.tdsAmount ?? 0) > 0) {
+    doc.font("Helvetica-Bold").fontSize(8).text(`TDS deducted: ${inr(p.tdsAmount)}${p.tdsSection ? ` (${p.tdsSection})` : ""} | Total settled: ${inr(Number(p.amount) + Number(p.tdsAmount))}`, L + 6, tableBottom + 39, { width: 300 });
+  }
 
   // signature + footer
   doc.font("Helvetica-Bold").fontSize(8.5)

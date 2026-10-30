@@ -180,7 +180,7 @@ export function ExpensesPage() {
       )}
 
       {creating && (
-        <div className="modal-overlay" onClick={() => setCreating(false)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
           <div className="modal" style={{ width: 560 }} onClick={(e) => e.stopPropagation()}>
             <h3>New expense</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

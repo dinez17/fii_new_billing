@@ -1,3 +1,4 @@
+import { formatDate } from "../../lib/date";
 import { FinancialReportPeriod, useFinancialReportPeriod } from "../../components/FinancialReportPeriod";
 import { ListTable } from "../../components/ListPagination";
 import { useState, type CSSProperties } from "react";
@@ -101,11 +102,12 @@ export function ProfitLossTallyPage() {
     <>
       <h2 className="page-title">Profit &amp; Loss A/c (Tally format)</h2>
       <div className="toolbar">
-        <FinancialReportPeriod period={period} />
+        <FinancialReportPeriod period={period} allYears={false} />
         <div className="spacer" />
         <ExportButtons reportType="PROFIT_LOSS_TALLY" filters={{ from, to }} />
       </div>
 
+      <p className="document-help">Gross profit b/f is the Trading Account profit for the selected period, not prior-year profit.</p>
       {report.isLoading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
       {d && (
         <>
@@ -147,6 +149,7 @@ export function BalanceSheetPage() {
       </div>
 
       {report.isLoading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
+      {d?.profitCarryForwardStart && <p className="document-help">Profit carry-forward starts from {formatDate(d.profitCarryForwardStart)}. Earlier document and party balances are retained.</p>}
       {d && (
         <TallyTable
           section={{ left: d.liabilities, right: d.assets }}

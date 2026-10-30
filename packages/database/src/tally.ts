@@ -76,10 +76,10 @@ async function pnlNumbers(tenantId: string, from: Date, to: Date): Promise<PnlNu
   const [openingStock, closingStock, sales, cn, dn, purch, pret, expByCat] = await Promise.all([
     stockValueAt(tenantId, dayBefore),
     stockValueAt(tenantId, to),
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range }, _sum: { taxableValue: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: range }, _sum: { taxableValue: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: range }, _sum: { taxableValue: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: range }, _sum: { taxableValue: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: range }, _sum: { taxableValue: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range }, _sum: { taxableValue: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: range }, _sum: { taxableValue: true } }),
     prisma.expense.groupBy({ by: ["categoryId"], where: { tenantId, status: "RECORDED", expenseDate: range }, _sum: { amount: true } }),
   ]);
@@ -153,12 +153,24 @@ export async function computeTallyPnl(tenantId: string, from: Date, to: Date): P
   };
 }
 
+export async function profitCarryForwardStart(tenantId: string): Promise<Date | null> {
+  const setting = await prisma.setting.findUnique({ where: { tenantId_group_key: { tenantId, group: "ACCOUNTING", key: "profitCarryForwardStart" } } });
+  if (!setting) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(setting.value)) throw new Error("Invalid profit carry-forward start date");
+  const date = new Date(setting.value);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== setting.value) throw new Error("Invalid profit carry-forward start date");
+  return date;
+}
+
 export interface TallyBalanceSheet {
   asOn: Date;
+  profitCarryForwardStart: Date | null;
   liabilities: TallySide;
   assets: TallySide;
   detail: {
     sundryDebtors: number;
+    tdsReceivable: number;
+    retainedEarnings: number;
     sundryCreditors: number;
     closingStock: number;
     cashInHand: number;
@@ -173,10 +185,12 @@ const EPOCH = new Date(Date.UTC(2000, 0, 1));
 
 export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise<TallyBalanceSheet> {
   const fy = await prisma.financialYear.findFirst({ where: { tenantId, startDate: { lte: asOn }, endDate: { gte: asOn } } });
+  const configuredStart = await profitCarryForwardStart(tenantId);
+  const profitStart = configuredStart && configuredStart <= asOn ? configuredStart : null;
   const fyStart = fy?.startDate ?? new Date(Date.UTC(asOn.getUTCFullYear() - (asOn.getUTCMonth() < 3 ? 1 : 0), 3, 1));
   const upTo = dayEnd(asOn);
   const upToRange = { lte: upTo };
-  const [ledger, dayBook, outGst, cnGst, dnGst, inGst, pretGst, expGst, pnl] = await Promise.all([
+  const [ledger, dayBook, outGst, cnGst, dnGst, inGst, pretGst, expGst, pnl, tds] = await Promise.all([
     prisma.ledgerEntry.groupBy({
       by: ["partyType"],
       where: { tenantId, entryDate: upToRange },
@@ -187,13 +201,14 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
       where: { tenantId, entryDate: upToRange },
       _sum: { amount: true },
     }),
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: upToRange }, _sum: { cgst: true, sgst: true, igst: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: upToRange }, _sum: { totalGst: true } }),
     prisma.expense.aggregate({ where: { tenantId, status: "RECORDED", expenseDate: upToRange }, _sum: { gstAmount: true } }),
-    pnlNumbers(tenantId, EPOCH, asOn),
+    pnlNumbers(tenantId, profitStart ?? EPOCH, asOn),
+    prisma.payment.aggregate({ where: { tenantId, status: "SUCCESS", paymentDate: upToRange }, _sum: { tdsAmount: true } }),
   ]);
 
   // Party balances
@@ -225,6 +240,8 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
   // ── Build the two sides
   const liabilities: TallyLine[] = [];
   const assets: TallyLine[] = [];
+  const tdsReceivable = r2(n(tds._sum.tdsAmount));
+  if (tdsReceivable !== 0) assets.push({ particulars: "TDS Receivable (recorded deductions)", amount: tdsReceivable });
   if (sundryCreditors !== 0) liabilities.push({ particulars: "Sundry Creditors", amount: sundryCreditors });
   if (gstPayable > 0) liabilities.push({ particulars: "Duties & Taxes (GST payable)", amount: gstPayable });
   liabilities.push({ particulars: profitAndLoss >= 0 ? "Profit & Loss A/c" : "Profit & Loss A/c (Dr)", amount: profitAndLoss, bold: true });
@@ -250,8 +267,9 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
 
   return {
     asOn,
+    profitCarryForwardStart: profitStart,
     liabilities: { lines: liabilities, total },
     assets: { lines: assets, total },
-    detail: { sundryDebtors, sundryCreditors, closingStock, cashInHand, bankAccounts, gstPayable, profitAndLoss, difference },
+    detail: { sundryDebtors, tdsReceivable, retainedEarnings, sundryCreditors, closingStock, cashInHand, bankAccounts, gstPayable, profitAndLoss, difference },
   };
 }

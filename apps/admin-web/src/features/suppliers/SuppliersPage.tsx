@@ -121,7 +121,7 @@ export function SuppliersPage() {
       )}
 
       {form && (
-        <div className="modal-overlay" onClick={() => setForm(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setForm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{form.id ? "Edit supplier" : "New supplier"}</h3>
             <label>Name *</label>
@@ -152,7 +152,7 @@ export function SuppliersPage() {
       )}
 
       {ledgerFor && (
-        <div className="modal-overlay" onClick={() => setLedgerFor(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setLedgerFor(null)}>
           <div className="modal" style={{ width: 720 }} onClick={(e) => e.stopPropagation()}>
             <h3>Supplier ledger — {ledgerFor.name}</h3>
             {ledger.data && (

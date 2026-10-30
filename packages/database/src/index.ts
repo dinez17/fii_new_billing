@@ -12,3 +12,5 @@ export {
   computeTallyPnl, computeBalanceSheet, stockValueAt,
   type TallyPnl, type TallyBalanceSheet, type TallyLine, type TallySide, type TallySection,
 } from "./tally.js";
+
+export { postCustomerPayment, type CustomerPaymentPosting } from "./customer-payment-posting.js";

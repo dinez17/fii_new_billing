@@ -102,10 +102,10 @@ async function dayBook(tenantId: string, f: Filters): Promise<TableData> {
 async function profitLoss(tenantId: string, f: Filters): Promise<TableData> {
   const inv = range(f);
   const [sales, cn, dn, pur, pret, expCat] = await Promise.all([
-    prisma.invoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true } }),
+    prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: inv }, _sum: { taxableValue: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, invoiceDate: inv }, _sum: { taxableValue: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: inv }, _sum: { taxableValue: true } }),
     prisma.expense.groupBy({ by: ["categoryId"], where: { tenantId, status: "RECORDED", expenseDate: inv }, _sum: { amount: true } }),
   ]);
@@ -169,6 +169,7 @@ async function balanceSheet(tenantId: string, f: Filters): Promise<TableData> {
       ["Sundry Creditors", bs.detail.sundryCreditors],
       ["Closing Stock", bs.detail.closingStock],
       ["Profit & Loss A/c", bs.detail.profitAndLoss],
+      ...(bs.profitCarryForwardStart ? [["Profit carry-forward start", day(bs.profitCarryForwardStart)] as [string, string]] : []),
     ],
   };
 }

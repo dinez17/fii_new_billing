@@ -120,7 +120,7 @@ export function PurchaseReturnsPage() {
       )}
 
       {creating && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={closeModal}>
           <div className="modal" style={{ width: 720 }} onClick={(e) => e.stopPropagation()}>
             <h3>New purchase return</h3>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>

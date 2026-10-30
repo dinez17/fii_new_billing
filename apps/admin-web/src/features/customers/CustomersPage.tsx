@@ -235,7 +235,7 @@ export function CustomersPage() {
       )}
 
       {form && (
-        <div className="modal-overlay" onClick={() => setForm(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setForm(null)}>
           <div className="modal" style={{ width: 760 }} onClick={(e) => e.stopPropagation()}>
             <h3>{form.id ? `Edit customer` : "New customer"}</h3>
             <label>Name *</label>

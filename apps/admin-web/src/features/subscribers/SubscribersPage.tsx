@@ -223,7 +223,7 @@ export function SubscribersPage() {
       )}
 
       {form && (
-        <div className="modal-overlay" onClick={() => setForm(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setForm(null)}>
           <div className="modal compact-modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
             <h3>New subscriber</h3>
             <label>Customer * (active customers only)</label>
@@ -291,7 +291,7 @@ export function SubscribersPage() {
       )}
 
       {manageFor && (
-        <div className="modal-overlay" onClick={() => setManageFor(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setManageFor(null)}>
           <div className="modal compact-modal" style={{ width: 820 }} onClick={(e) => e.stopPropagation()}>
             <h3>Subscriber — {manageFor.code} <span style={{ fontWeight: 400, fontSize: 14 }}>({manageFor.customer.name})</span></h3>
             <label>Subscriber type</label>

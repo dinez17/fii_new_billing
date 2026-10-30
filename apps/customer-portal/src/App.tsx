@@ -19,7 +19,7 @@ interface Me {
 }
 interface Invoice { id: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grandTotal: string; amountPaid: string; status: string }
 interface Payment {
-  id: string; amount: string; mode: string; paymentDate: string; status: string;
+  id: string; amount: string; tdsAmount?: string; mode: string; paymentDate: string; status: string;
   receipt?: { id: string; receiptNumber: string } | null;
   allocations: { invoice: { invoiceNumber: string } }[];
 }
@@ -264,7 +264,7 @@ function Portal() {
             {payments.data?.map((p) => (
               <tr key={p.id}>
                 <td>{new Date(p.paymentDate).toLocaleDateString()}</td>
-                <td>{inr(p.amount)}</td>
+                <td>{inr(p.amount)}{Number(p.tdsAmount ?? 0) > 0 && <div className="document-help">TDS deducted: {inr(p.tdsAmount)}</div>}</td>
                 <td>{p.mode}</td>
                 <td style={{ fontSize: 13 }}>{p.allocations.map((a) => a.invoice.invoiceNumber).join(", ") || "—"}</td>
                 <td><span className={`badge ${p.status === "SUCCESS" ? "ok" : p.status === "FAILED" ? "warn" : ""}`}>{p.status}</span></td>

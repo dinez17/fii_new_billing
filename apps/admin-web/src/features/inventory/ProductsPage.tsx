@@ -155,7 +155,7 @@ export function ProductsPage() {
       )}
 
       {form && (
-        <div className="modal-overlay" onClick={() => setForm(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setForm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{form.id ? "Edit product" : "New product"}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
@@ -208,7 +208,7 @@ export function ProductsPage() {
       )}
 
       {adjustFor && (
-        <div className="modal-overlay" onClick={() => setAdjustFor(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setAdjustFor(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Adjust stock — {adjustFor.name}</h3>
             <p style={{ color: "var(--muted)" }}>Current: {Number(adjustFor.stockQty)} {adjustFor.unit}</p>
@@ -235,7 +235,7 @@ export function ProductsPage() {
       )}
 
       {movesFor && (
-        <div className="modal-overlay" onClick={() => setMovesFor(null)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setMovesFor(null)}>
           <div className="modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
             <h3>Stock history — {movesFor.name}</h3>
             <ListTable style={{ fontSize: 13 }}>

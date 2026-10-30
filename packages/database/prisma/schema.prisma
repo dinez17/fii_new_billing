@@ -817,6 +817,8 @@ model Payment {
   customer       Customer      @relation(fields: [customerId], references: [id])
   fyCode         String
   amount         Decimal       @db.Decimal(14, 2)
+  tdsAmount      Decimal       @default(0) @db.Decimal(14, 2) // non-cash TDS deducted by customer
+  tdsSection     String?
   mode           PaymentMode
   status         PaymentStatus @default(SUCCESS) // gateway flows start INITIATED
   paymentDate    DateTime      @default(now())
@@ -845,7 +847,8 @@ model PaymentAllocation {
   payment   Payment @relation(fields: [paymentId], references: [id])
   invoiceId String
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
-  amount    Decimal @db.Decimal(14, 2)
+  amount    Decimal @db.Decimal(14, 2) // cash allocated
+  tdsAmount Decimal @default(0) @db.Decimal(14, 2) // TDS allocated
 
   @@unique([paymentId, invoiceId])
 }

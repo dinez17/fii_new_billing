@@ -13,7 +13,7 @@
  * Idempotent: runConsumer skips events already in ProcessedEvent, and
  * fromBeginning=true lets a fresh worker backfill events still in Kafka.
  */
-import { Prisma, prisma, postRecordedExpenseDayBook } from "@fii/database";
+import { Prisma, prisma, postRecordedExpenseDayBook, postCustomerPayment } from "@fii/database";
 import { createLogger, startOpsServer } from "@fii/common";
 import { TOPICS, runConsumer, type EventEnvelope } from "@fii/kafka";
 import { postInvoiceEdit, type InvoiceEdit } from "./invoice-edit.js";
@@ -22,7 +22,7 @@ const log = createLogger("ledger-worker");
 
 type PayMode = Prisma.DayBookEntryCreateInput["mode"];
 interface InvoiceCreated { invoiceId: string; invoiceNumber: string; customerId: string; grandTotal: string; dueDate: string; invoiceDate?: string; fyCode?: string }
-interface PaymentSuccess { paymentId: string; customerId: string; amount: string; mode: PayMode; receiptNumber: string; paymentDate: string }
+interface PaymentSuccess { tdsAmount?: string; paymentId: string; customerId: string; amount: string; mode: PayMode; receiptNumber: string; paymentDate: string }
 interface NoteCreated { kind: "credit" | "debit"; noteId: string; noteNumber: string; customerId: string; invoiceNumber: string; total: string; noteDate: string }
 interface SalaryPaid { payslipId: string; employeeName: string; amount: string; mode: PayMode; month: string }
 interface ExpenseCreated { expenseId: string; category: string; total: string; mode: PayMode; expenseDate: string }
@@ -114,25 +114,12 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
     }
     case TOPICS.PAYMENT_SUCCESS: {
       const p = event.payload as PaymentSuccess;
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId,
-          partyType: "CUSTOMER",
-          partyId: p.customerId,
-          fyCode: await fyCodeFor(tenantId, new Date(p.paymentDate)),
-          // occurredAt (not the midnight business date) so same-day entries
-          // sort in true chronological order in the ledger
-          entryDate: new Date(event.occurredAt),
-          entryType: "PAYMENT",
-          refType: "PAYMENT",
-          refId: p.paymentId,
-          refNumber: p.receiptNumber,
-          credit: new Prisma.Decimal(p.amount),
-          narration: `Payment received — receipt ${p.receiptNumber}`,
-        },
-      });
-      await writeDayBook(tenantId, new Date(event.occurredAt), "CASH_IN", "INVOICE_PAYMENT",
-        p.amount, p.mode, "PAYMENT", p.paymentId, `Receipt ${p.receiptNumber}`, event.actorUserId);
+      const fyCode = await fyCodeFor(tenantId, new Date(p.paymentDate));
+      await prisma.$transaction(tx => postCustomerPayment(tx, {
+        tenantId, customerId: p.customerId, paymentId: p.paymentId, fyCode,
+        entryDate: new Date(p.paymentDate), amount: p.amount, tdsAmount: p.tdsAmount,
+        mode: p.mode, receiptNumber: p.receiptNumber, actorId: event.actorUserId,
+      }));
       break;
     }
     case TOPICS.EXPENSE_CREATED: {

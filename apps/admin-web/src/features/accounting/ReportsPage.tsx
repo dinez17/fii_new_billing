@@ -28,9 +28,9 @@ function toTable(type: ReportType, data: any): Table {
   switch (type) {
     case "SALES":
       return {
-        columns: ["Invoice", "Date", "Customer", "Taxable", "Total", "Paid", "Status"],
+        columns: ["Invoice", "Date", "Customer", "Taxable", "Total", "Settled incl. TDS", "Status"],
         rows: (data.rows ?? []).map((r: any) => [r.invoiceNumber, formatDate(r.invoiceDate), r.customer?.name ?? "", money(r.taxableValue), money(r.grandTotal), money(r.amountPaid), r.status]),
-        summary: [["Invoices", String(data.summary.count)], ["Taxable", money(data.summary.taxableValue)], ["Grand total", money(data.summary.grandTotal)], ["Collected", money(data.summary.collected)], ["Outstanding", money(data.summary.outstanding)]],
+        summary: [["Invoices", String(data.summary.count)], ["Taxable", money(data.summary.taxableValue)], ["Grand total", money(data.summary.grandTotal)], ["Collected", money(data.summary.collected)], ["TDS deducted", money(data.summary.tdsDeducted ?? 0)], ["Outstanding", money(data.summary.outstanding)]],
       };
     case "PURCHASES":
       return {
@@ -106,7 +106,7 @@ export function ReportView({ reportKey }: { reportKey: ReportType }) {
     <>
       <h2 className="page-title">{meta.label}</h2>
       <div className="toolbar">
-        {reportKey === "PROFIT_LOSS" ? <FinancialReportPeriod period={period} /> : meta.ranged && (
+        {reportKey === "PROFIT_LOSS" ? <FinancialReportPeriod period={period} allYears={false} /> : meta.ranged && (
           <>
             <DateInput value={from} onChange={(e) => setFrom(e.target.value)} />
             <span style={{ color: "var(--muted)" }}>to</span>
