@@ -10,7 +10,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "User", "AuditLog", "LegacyRecord",
   "Customer", "Plan", "Subscriber", "SubscriberPlan",
   "FinancialYear", "NumberSeries",
-  "BillingRun", "Invoice", "CreditNote", "DebitNote",
+  "BillingRun", "Invoice", "SalesDocument", "CreditNote", "DebitNote",
   "Payment", "Receipt",
   "Supplier", "PurchaseOrder", "Grn", "PurchaseInvoice",
   "PurchaseReturn", "SupplierPayment",

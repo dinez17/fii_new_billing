@@ -70,6 +70,14 @@ app.get("/api/v1/settings/license", authenticate, authorize("settings:read"), h(
   res.json(await getTenantLicense(req.auth!.tenantId));
 }));
 
+// Branding is available to every authenticated tenant user; no financial/contact details.
+app.get("/api/v1/settings/branding", authenticate, h(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await prisma.tenant.findUniqueOrThrow({
+    where: { id: req.auth!.tenantId }, select: { name: true, logoUrl: true },
+  }));
+}));
+
 app.get("/api/v1/settings/company", authenticate, authorize("settings:read"), h(async (req, res) => {
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: req.auth!.tenantId } });
   res.json(tenant);

@@ -84,20 +84,21 @@ function itemRows(items: CreateInput["items"], totals: ReturnType<typeof compute
   }));
 }
 
-export async function createInvoice(tenantId: string, actorId: string, input: CreateInput) {
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+export async function createInvoice(tenantId: string, actorId: string, input: CreateInput, transaction?: Prisma.TransactionClient) {
+  const client = transaction ?? prisma;
+  const tenant = await client.tenant.findUniqueOrThrow({ where: { id: tenantId } });
   if (!tenant.stateCode) throw badRequest("Set the company GST state code in Settings → Company profile first");
 
-  const fy = await assertActiveFy(tenantId, input.invoiceDate);
+  const fy = await assertActiveFy(tenantId, input.invoiceDate, client);
 
-  const customer = await prisma.customer.findFirst({ where: { id: input.customerId, tenantId, isActive: true } });
+  const customer = await client.customer.findFirst({ where: { id: input.customerId, tenantId, isActive: true } });
   if (!customer) throw notFound("Customer");
 
   const placeOfSupply = customer.stateCode ?? tenant.stateCode;
   const isInterState = placeOfSupply !== tenant.stateCode;
-  const defaultTerms = await termsFor(tenantId, "INVOICE");
+  const defaultTerms = await termsFor(tenantId, "INVOICE", client);
 
-  return prisma.$transaction(async (tx) => {
+  const create = async (tx: Prisma.TransactionClient) => {
     const subscriber = input.subscriberId ? await tx.subscriber.findFirst({ where: { id: input.subscriberId, tenantId, customerId: customer.id }, select: { poNumber: true, chargeGst: true } }) : null;
     if (input.subscriberId && !subscriber) throw notFound("Subscriber");
     const chargeGst = subscriber?.chargeGst === false ? false : input.chargeGst ?? true;
@@ -149,7 +150,8 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
     }, { actorUserId: actorId }));
 
     return invoice;
-  });
+  };
+  return transaction ? create(transaction) : prisma.$transaction(create);
 }
 
 export async function listInvoices(tenantId: string, q: ListQuery) {

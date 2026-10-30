@@ -1,3 +1,6 @@
+import { installResponsiveTables } from "../../../packages/browser/src/responsive-tables";
+import { installPwa } from "../../../packages/browser/src/pwa";
+import { installThemePicker } from "../../../packages/browser/src/themes";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -16,6 +19,8 @@ import { SubscribersPage } from "./features/subscribers/SubscribersPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { InvoicesPage } from "./features/invoices/InvoicesPage";
 import { NewInvoicePage } from "./features/invoices/NewInvoicePage";
+import { SalesDocumentsPage } from "./features/quotations/SalesDocumentsPage";
+import { SalesDocumentForm } from "./features/quotations/SalesDocumentForm";
 import { NotesPage } from "./features/notes/NotesPage";
 import { PaymentsPage } from "./features/payments/PaymentsPage";
 import { BillingRunsPage } from "./features/billing-runs/BillingRunsPage";
@@ -42,10 +47,17 @@ import { TenantsPage } from "./features/platform/TenantsPage";
 import { ComplaintsPage } from "./features/helpdesk/ComplaintsPage";
 import { TasksPage } from "./features/helpdesk/TasksPage";
 import "./styles.css";
+import "../../../packages/browser/src/mobile.css";
+import "../../../packages/browser/src/pwa.css";
+import "../../../packages/browser/src/theme.css";
 import { isPlatformConsole } from "./lib/console";
 import { installEnterNavigation } from "../../../packages/browser/src/enter-navigation";
 
 const removeEnterNavigation = installEnterNavigation();
+const removeThemePicker = installThemePicker();
+const removeResponsiveTables = installResponsiveTables();
+const removePwa = import.meta.env.PROD ? installPwa() : () => {};
+import.meta.hot?.dispose(() => { removeResponsiveTables(); removePwa(); removeThemePicker(); });
 import.meta.hot?.dispose(removeEnterNavigation);
 
 const qc = new QueryClient({
@@ -69,6 +81,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/invoices" element={<ProtectedRoute permission="invoice:read"><InvoicesPage /></ProtectedRoute>} />
+            <Route path="/quotations" element={<ProtectedRoute permission="invoice:read"><SalesDocumentsPage key="quotations" kind="QUOTATION" /></ProtectedRoute>} />
+            <Route path="/quotations/new" element={<ProtectedRoute permission="invoice:create"><SalesDocumentForm kind="QUOTATION" /></ProtectedRoute>} />
+            <Route path="/quotations/:id/edit" element={<ProtectedRoute permission="invoice:read"><SalesDocumentForm kind="QUOTATION" /></ProtectedRoute>} />
+            <Route path="/proformas" element={<ProtectedRoute permission="invoice:read"><SalesDocumentsPage key="proformas" kind="PROFORMA" /></ProtectedRoute>} />
+            <Route path="/proformas/new" element={<ProtectedRoute permission="invoice:create"><SalesDocumentForm kind="PROFORMA" /></ProtectedRoute>} />
+            <Route path="/proformas/:id/edit" element={<ProtectedRoute permission="invoice:read"><SalesDocumentForm kind="PROFORMA" /></ProtectedRoute>} />
             <Route path="/invoices/new" element={<ProtectedRoute permission="invoice:create"><NewInvoicePage /></ProtectedRoute>} />
             <Route path="/invoices/:id/edit" element={<ProtectedRoute permission="invoice:update"><NewInvoicePage /></ProtectedRoute>} />
             <Route path="/notes" element={<ProtectedRoute permission="credit_note:read"><NotesPage /></ProtectedRoute>} />

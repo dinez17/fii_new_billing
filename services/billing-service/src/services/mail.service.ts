@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { prisma } from "@fii/database";
 import { badRequest, decryptSecret, customerMailRecipients } from "@fii/common";
 import { buildInvoicePdfBuffer } from "./pdf.service.js";
+import { buildSalesDocumentPdfBuffer } from "@fii/pdf";
 
 function render(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k: string) => vars[k] ?? "");
@@ -29,6 +30,27 @@ async function smtpFor(tenantId: string): Promise<{ t: Transporter; from: string
   }
   const from = cfg.fromName ? `"${cfg.fromName}" <${cfg.fromEmail ?? cfg.user}>` : (cfg.fromEmail ?? cfg.user);
   return { t, from };
+}
+
+/** Quotation/proforma sending is explicit; invoice notifications use the existing event flow. */
+export async function emailSalesDocument(tenantId: string, id: string): Promise<{ to: string }> {
+  const { buffer, document } = await buildSalesDocumentPdfBuffer(tenantId, id);
+  if (document.status === "CANCELLED") throw badRequest("Cancelled documents cannot be emailed");
+  const to = customerMailRecipients(document.customer);
+  if (!to) throw badRequest("Add the customer's email address before sending this document");
+  const title = document.kind === "QUOTATION" ? "Quotation" : "Proforma invoice";
+  const subject = `${title} ${document.documentNumber}`;
+  const body = `Dear ${document.customer.name},\n\nPlease find attached ${title.toLowerCase()} ${document.documentNumber} for INR ${Number(document.grandTotal).toFixed(2)}. This is not a tax invoice.\n\nThank you.`;
+  const smtp = await smtpFor(tenantId);
+  const row = await prisma.notificationLog.create({ data: { tenantId, channel: "EMAIL", to, subject, body, templateCode: "SALES_DOCUMENT_EMAIL", status: "QUEUED", refType: document.kind, refId: id } });
+  try {
+    await smtp.t.sendMail({ from: smtp.from, to, subject, text: body, attachments: [{ filename: document.documentNumber.replace(/[\\/]/g, "-") + ".pdf", content: buffer, contentType: "application/pdf" }] });
+    await prisma.notificationLog.update({ where: { id: row.id }, data: { status: "SENT", sentAt: new Date(), attempts: { increment: 1 } } });
+    return { to };
+  } catch (error) {
+    await prisma.notificationLog.update({ where: { id: row.id }, data: { status: "FAILED", error: String(error).slice(0, 500), attempts: { increment: 1 } } });
+    throw badRequest("Email failed. Check SMTP settings and notification logs before retrying.");
+  }
 }
 
 /** Emails the invoice PDF to the customer; logs to NotificationLog. */

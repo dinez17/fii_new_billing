@@ -220,6 +220,7 @@ enum DocType {
   PURCHASE_INVOICE
   PAYMENT_VOUCHER
   QUOTATION
+  PROFORMA_INVOICE
   CUSTOMER
   SUBSCRIBER
   GRN
@@ -471,6 +472,7 @@ model Customer {
 
   subscribers Subscriber[]
   invoices    Invoice[]
+  salesDocuments SalesDocument[]
   payments    Payment[]
   complaints  Complaint[]
   portalUser  User?
@@ -614,6 +616,43 @@ model NumberSeries {
 
 // ─────────────────────────────────────────────── BILLING & INVOICING
 
+// Non-accounting sales documents; only invoice conversion posts stock/receivables.
+model SalesDocument {
+  id String @id @default(uuid())
+  tenantId String
+  kind String // QUOTATION | PROFORMA
+  documentNumber String
+  fyCode String
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  documentDate DateTime
+  validUntil DateTime
+  chargeGst Boolean @default(true)
+  placeOfSupply String
+  isInterState Boolean
+  poNumber String?
+  subject String?
+  notes String?
+  terms String?
+  items Json
+  totals Json
+  grandTotal Decimal @db.Decimal(14, 2)
+  status String @default("OPEN") // OPEN | CONVERTED | CANCELLED
+  version Int @default(1)
+  sourceDocumentId String? // immutable audit reference; source documents cannot be deleted
+  convertedDocumentId String?
+  invoiceId String? @unique
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  cancelReason String?
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, documentNumber])
+  @@index([tenantId, kind, documentDate])
+  @@index([tenantId, customerId])
+}
+
 model BillingRun {
   id          String           @id @default(uuid())
   tenantId    String
@@ -651,6 +690,7 @@ model Invoice {
   id            String        @id @default(uuid())
   tenantId      String
   invoiceNumber String
+  salesDocument SalesDocument?
   poNumber      String? // subscriber PO snapshot at issuance
   invoiceType   InvoiceType   @default(SUBSCRIPTION)
   fyCode        String

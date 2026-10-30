@@ -30,9 +30,9 @@ function TallyTable({ section, leftHead, rightHead, totalLabel = "Total" }: {
     <ListTable style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20, border }}>
       <thead>
         <tr style={{ background: "#eef1f5" }}>
-          <th style={{ textAlign: "left", padding: 8, border }}>{leftHead}</th>
+          <th aria-label={`${leftHead} (Dr)`} style={{ textAlign: "left", padding: 8, border }}>{leftHead}</th>
           <th style={{ textAlign: "right", padding: 8, border, width: 140 }}>Amount</th>
-          <th style={{ textAlign: "left", padding: 8, border, borderLeft: "2px solid #9aa4b1" }}>{rightHead}</th>
+          <th aria-label={`${rightHead} (Cr)`} style={{ textAlign: "left", padding: 8, border, borderLeft: "2px solid #9aa4b1" }}>{rightHead}</th>
           <th style={{ textAlign: "right", padding: 8, border, width: 140 }}>Amount</th>
         </tr>
       </thead>

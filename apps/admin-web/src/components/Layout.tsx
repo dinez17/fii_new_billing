@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import { api } from "../lib/api";
@@ -18,6 +19,8 @@ const NAV: NavEntry[] = isPlatformConsole ? [
     label: "Sales & Billing",
     items: [
       { path: "/invoices", label: "Invoices", permission: "invoice:read" },
+      { path: "/quotations", label: "Quotations", permission: "invoice:read" },
+      { path: "/proformas", label: "Proforma invoices", permission: "invoice:read" },
       { path: "/billing-runs", label: "Billing Runs", permission: "billing_run:read" },
       { path: "/notes", label: "Credit/Debit Notes", permission: "credit_note:read" },
       { path: "/payments", label: "Payments", permission: "payment:read" },
@@ -121,12 +124,48 @@ export function Layout() {
   const { user, hasPerm, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const sidebar = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const branding = useQuery({
+    queryKey: ["company", "sidebar-branding", user?.id],
+    queryFn: async () => (await api.get("/settings/branding")).data as { name: string; logoUrl: string | null },
+    enabled: !isPlatformConsole && !!user,
+  });
+  const tenantLogo = branding.data?.logoUrl;
+  const logo = !isPlatformConsole && tenantLogo && tenantLogo !== failedLogo ? tenantLogo : "/brand/fii-logo.png";
+  const closeMobile = () => { setMobileOpen(false); menuButton.current?.focus(); };
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1024px)");
+    const onChange = () => { if (!media.matches) setMobileOpen(false); };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden"; document.body.dataset.mobileNav = "open";
+    const focusable = () => [...(sidebar.current?.querySelectorAll<HTMLElement>('a[href],button:not(:disabled)') ?? [])].filter(el => el.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setMobileOpen(false); menuButton.current?.focus(); }
+      if (event.key !== "Tab") return;
+      const elements = focusable(), first = elements[0], last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", key);
+    return () => { document.body.style.overflow = previousOverflow; delete document.body.dataset.mobileNav; document.removeEventListener("keydown", key); };
+  }, [mobileOpen]);
 
   // Accordion: only one group open at a time. Start with the group that owns
   // the current route expanded.
   const activeGroup = NAV.find((e): e is NavGroup =>
     isGroup(e) && e.items.some((i) => (!i.permission || hasPerm(i.permission)) && location.pathname.startsWith(i.path)),
   )?.label ?? null;
+  const currentPage = NAV.flatMap(entry => isGroup(entry) ? entry.items : [entry]).find(item => location.pathname === item.path)?.label ?? "Workspace";
   const [openGroup, setOpenGroup] = useState<string | null>(activeGroup);
 
   async function onLogout() {
@@ -136,9 +175,10 @@ export function Layout() {
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">{isPlatformConsole ? "FII Platform" : "FII Billing"}</div>
+    <div className={`shell ${mobileOpen ? "mobile-nav-open" : ""}`}>
+      {mobileOpen && <button className="sidebar-backdrop" aria-label="Close navigation" tabIndex={-1} onClick={closeMobile} />}
+      <aside id="main-navigation" ref={sidebar} className="sidebar" aria-label="Main navigation" onClick={e => { if (e.target instanceof Element && e.target.closest("a")) closeMobile(); }}>
+        <div className="brand"><img className="sidebar-logo" src={logo} alt={isPlatformConsole ? "FII" : branding.data?.name || "FII"} onError={() => { if (tenantLogo) setFailedLogo(tenantLogo); }} /><span className="sidebar-brand-name">{isPlatformConsole ? "FII Platform" : branding.data?.name || "FII Billing"}</span><button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={closeMobile}>×</button></div>
         {NAV.map((entry) =>
           isGroup(entry) ? (
             <NavGroupView
@@ -157,9 +197,12 @@ export function Layout() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div />
+          <div className="workspace-context"><span>{isPlatformConsole ? "Platform" : "Workspace"}</span><span className="context-divider" aria-hidden="true">/</span><strong>{currentPage}</strong></div>
+          <div className="mobile-nav-heading"><button type="button" ref={menuButton} className="mobile-nav-toggle" aria-label="Open navigation" aria-controls="main-navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button><span className="mobile-brand">{isPlatformConsole ? "FII Platform" : "FII Billing"}</span></div>
           <div className="who">
-            {user?.name} · {user?.email}{" "}
+            <span data-theme-picker />
+            <span className="user-avatar" aria-hidden="true">{user?.name?.trim().slice(0, 1).toUpperCase() || "U"}</span>
+            <span className="who-identity" title={`${user?.name ?? ""} · ${user?.email ?? ""}`}>{user?.name}<span className="who-email"> · {user?.email}</span></span>
             <button className="small" style={{ marginLeft: 12 }} onClick={onLogout}>Logout</button>
           </div>
         </header>

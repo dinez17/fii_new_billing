@@ -1,0 +1,59 @@
+/* Shared mobile record cards: table semantics and original interactive elements are retained. */
+@media screen and (max-width: 800px) {
+  html { scroll-padding-top: 76px; }
+  body { overflow-wrap: anywhere; }
+  input, select, textarea, button { touch-action: manipulation; }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px !important; max-width: 100%; min-height: 44px; }
+  button, a.button, .icon-button, button.icon-button.small { min-height: 44px; }
+  .icon-button, button.icon-button.small { width: 44px; height: 44px; min-width: 44px; padding: 10px; }
+  .login-wrap { padding: 16px; min-height: 100dvh; }
+  .login-card { width: 100% !important; max-width: 420px; padding: 24px; }
+  .content { padding: 16px 12px 80px !important; }
+  .content, .wrap, .main, .card, .modal, fieldset { min-width: 0; max-width: 100%; }
+  .card { padding: 14px; }
+  .wrap { padding: 16px 12px 80px; }
+  .toolbar { gap: 8px; align-items: stretch; }
+  .toolbar > * { max-width: 100%; min-width: 0; }
+  .toolbar > input, .toolbar > select, .toolbar > label { flex: 1 1 145px !important; width: 100% !important; }
+  .toolbar > span { white-space: normal; }
+  .toolbar > .spacer { display: none; }
+  .toolbar > button { flex: 1 1 auto; }
+  .rows-per-page { flex: 0 0 auto !important; width: auto !important; align-items: center; }
+  .rows-per-page select { width: 75px !important; }
+  .list-pagination, .pagination { flex-wrap: wrap; gap: 8px; }
+  .table-scroll { overflow: visible; }
+  table[data-mobile-table="cards"] { display: block; width: 100% !important; min-width: 0 !important; border: 0 !important; border-radius: 0; box-shadow: none; background: transparent; overflow: visible; }
+  table[data-mobile-table] > thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  table[data-mobile-table] > tbody, table[data-mobile-table] > tfoot { display: grid; gap: 12px; width: 100%; }
+  table[data-mobile-table] > tfoot { margin-top: 12px; }
+  table[data-mobile-table] > :is(tbody,tfoot) > tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; border: 1px solid var(--border, #e7ebf1); border-radius: 14px; overflow: hidden; background: var(--card, white); box-shadow: 0 1px 2px #10204004; }
+  table[data-mobile-table] tr[data-mobile-context]:not([data-mobile-context=""])::before { content: attr(data-mobile-context); grid-column: 1 / -1; padding: 10px 12px; background: #f8fafc; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border, #e7ebf1); }
+  table[data-mobile-table] > :is(tbody,tfoot) > tr > :is(td,th) { display: block; width: auto !important; min-width: 0 !important; max-width: 100% !important; padding: 11px 12px !important; border: 0 !important; border-right: 1px solid var(--border, #e7ebf1) !important; border-bottom: 1px solid var(--border, #e7ebf1) !important; text-align: left !important; white-space: normal !important; overflow-wrap: anywhere; font-size: 14px; background: transparent; }
+  table[data-mobile-table] td::before, table[data-mobile-table] tbody th::before { content: attr(data-mobile-label); display: block; margin-bottom: 5px; font-size: 11px; font-weight: 500; line-height: 1.35; letter-spacing: .025em; color: var(--muted, #667085); text-transform: none; }
+  table[data-mobile-table] :is(td,th)[data-mobile-label=""]::before { display: none; }
+  table[data-mobile-table] :is(td,th)[data-mobile-wide] { grid-column: 1 / -1; }
+  table[data-mobile-table] > :is(tbody,tfoot) > tr > td[data-mobile-actions] { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 59px; padding: 8px 10px !important; border-right: 0 !important; border-bottom: 0 !important; background: #fff; }
+  table[data-mobile-table] td[data-mobile-actions]::before { display: none; }
+  table[data-mobile-table] td[data-mobile-actions] > div { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  table[data-mobile-table] td [style*="white-space: nowrap"] { white-space: normal !important; }
+  .content :is(img, svg, canvas), .wrap :is(img, svg, canvas) { max-width: 100%; }
+  table[data-mobile-table] td code { white-space: normal; overflow-wrap: anywhere; }
+  .list-page-hidden { display: none !important; }
+  .modal-overlay { padding: 10px; align-items: center; }
+  .modal, .modal[style] { width: 100% !important; max-width: 100% !important; min-width: 0 !important; max-height: calc(100dvh - 20px); padding: 16px; border-radius: 14px; overscroll-behavior: contain; }
+  .modal .actions { flex-wrap: wrap; }
+  .modal .actions > button { flex: 1; }
+  .content [style*="min-width"], .modal [style*="min-width"] { min-width: 0 !important; }
+  .card[style*="display: flex"], .content > [style*="display: flex"], .modal > [style*="display: flex"] { flex-wrap: wrap !important; gap: 10px !important; }
+  .perm-grid { width: 100%; grid-template-columns: 110px repeat(6, 44px); overflow-x: auto; padding-bottom: 8px; }
+  .topbar .who { min-width: 0; }
+  pre { max-width: 100%; overflow: auto; white-space: pre-wrap; }
+}
+@media screen and (max-width: 600px) {
+  .content [style*="grid-template-columns"], .modal [style*="grid-template-columns"], .wrap [style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
+  .content [style*="grid-column"], .modal [style*="grid-column"] { grid-column: auto !important; }
+  .topbar { gap: 8px; }
+  .topbar .who { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }

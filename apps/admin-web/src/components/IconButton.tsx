@@ -1,7 +1,9 @@
 import type { ButtonHTMLAttributes } from "react";
 
-export type ActionName = "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning";
+export type ActionName = "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning" | "print" | "convert";
 const paths: Record<ActionName, string> = {
+  print: "M6 9V2h12v7M6 18H3V9h18v9h-3M6 14h12v8H6zM17 12h1",
+  convert: "M3 7h16m-5-5 5 5-5 5M21 17H5m5-5-5 5 5 5",
   edit: "m16 3 5 5M4 20l4-1L21 6l-5-5L3 14l-1 8z",
   view: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
   download: "M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",

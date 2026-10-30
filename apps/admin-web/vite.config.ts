@@ -1,9 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { pwaBuild } from "../../packages/browser/src/pwa-build";
 
 // All /api traffic goes through the api-gateway, which routes per path.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pwaBuild(process.env.VITE_CONSOLE_MODE === "platform" ? "platform" : "tenant")],
   server: {
     port: 5173,
     proxy: {

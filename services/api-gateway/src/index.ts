@@ -63,6 +63,7 @@ const ROUTES: Record<string, string> = {
   "/api/v1/notification-logs": process.env.SETTINGS_SERVICE_URL ?? "http://localhost:8091",
   "/api/v1/backup": process.env.SETTINGS_SERVICE_URL ?? "http://localhost:8091",
   "/api/v1/invoices": process.env.BILLING_SERVICE_URL ?? "http://localhost:8083",
+  "/api/v1/sales-documents": process.env.BILLING_SERVICE_URL ?? "http://localhost:8083",
   "/api/v1/credit-notes": process.env.BILLING_SERVICE_URL ?? "http://localhost:8083",
   "/api/v1/billing-runs": process.env.BILLING_SERVICE_URL ?? "http://localhost:8083",
   "/api/v1/suppliers": process.env.PURCHASE_SERVICE_URL ?? "http://localhost:8085",

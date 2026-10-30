@@ -11,6 +11,7 @@ import * as notes from "./services/note.service.js";
 import { streamInvoicePdf } from "./services/pdf.service.js";
 import { streamNotePdf } from "@fii/pdf";
 import { billingRunsRouter } from "./routes/billing-runs.routes.js";
+import { salesDocumentsRouter } from "./routes/sales-documents.routes.js";
 import { emailInvoice } from "./services/mail.service.js";
 import {
   cancelBody, invoiceCreateBody, invoiceListQuery, invoiceUpdateBody,
@@ -108,6 +109,7 @@ portalInvoicesRouter.get("/:id/pdf", h(async (req, res) => {
 }));
 
 app.use("/api/v1/invoices", invoicesRouter);
+app.use("/api/v1/sales-documents", salesDocumentsRouter);
 app.use("/api/v1/portal/invoices", portalInvoicesRouter);
 app.use("/api/v1/billing-runs", billingRunsRouter);
 app.use("/api/v1/credit-notes", noteRouter("credit", "credit_note"));

@@ -43,6 +43,7 @@ export function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={onSubmit}>
+        <img className="login-logo" src="/brand/fii-logo.png" alt="First Idea Infotech" />
         <h1>{isPlatformConsole ? "FII Platform" : "FII Billing"}</h1>
         <p>{isPlatformConsole ? "Superadmin sign in · Tenant and license management" : "Sign in to the tenant admin console"}</p>
         <label>Email</label>

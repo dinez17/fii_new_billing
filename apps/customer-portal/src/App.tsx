@@ -53,6 +53,7 @@ function Login() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={onSubmit}>
+        <img className="login-logo" src="/brand/fii-logo.png" alt="First Idea Infotech" />
         <h1>Customer Portal</h1>
         <p>View your invoices and pay online</p>
         <label>Email</label>
@@ -164,6 +165,7 @@ function Portal() {
       <div className="topbar">
         <h1>{me.data?.company?.name ?? "Customer Portal"}</h1>
         <div className="who">
+          <span data-theme-picker />
           {customerName} <button className="small" style={{ marginLeft: 10 }} onClick={() => void signOut()}>Logout</button>
         </div>
       </div>

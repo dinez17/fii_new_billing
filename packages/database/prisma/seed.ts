@@ -151,7 +151,7 @@ async function main() {
   const seriesDefaults: Array<[string, string]> = [
     ["INVOICE", "INV"], ["RECEIPT", "RCT"], ["CREDIT_NOTE", "CRN"], ["DEBIT_NOTE", "DBN"],
     ["COMPLAINT", "CMP"], ["PURCHASE_ORDER", "PO"], ["PURCHASE_INVOICE", "PIN"],
-    ["PAYMENT_VOUCHER", "PV"], ["QUOTATION", "QTN"],
+    ["PAYMENT_VOUCHER", "PV"], ["QUOTATION", "QTN"], ["PROFORMA_INVOICE", "PI"],
   ];
   for (const [docType, prefix] of seriesDefaults) {
     await prisma.numberSeries.upsert({

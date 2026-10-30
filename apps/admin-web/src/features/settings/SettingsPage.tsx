@@ -376,7 +376,7 @@ function CompanyTab() {
         </div>
         {canEdit && (
           <div>
-            <label style={{ margin: 0 }}>Company logo (PNG/JPEG, max 300KB — printed on invoices)</label>
+            <label style={{ margin: 0 }}>Company logo (sidebar and invoices · PNG/JPEG, max 300KB)</label>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <input type="file" accept="image/png,image/jpeg" disabled={logoBusy}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f); e.target.value = ""; }} />
