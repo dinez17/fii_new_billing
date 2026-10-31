@@ -15,6 +15,8 @@ export const lineItem = z.object({
 export const invoiceCreateBody = z.object({
   chargeGst: z.boolean().optional(),
   poNumber: z.string().trim().max(100).nullable().optional(),
+  periodStart: z.coerce.date().nullable().optional(),
+  periodEnd: z.coerce.date().nullable().optional(),
   customerId: z.string().uuid(),
   subscriberId: z.string().uuid().optional(),
   invoiceDate: z.coerce.date(),
@@ -30,6 +32,8 @@ export const invoiceUpdateBody = z.object({
   subscriberId: z.string().uuid().nullable().optional(),
   invoiceDate: z.coerce.date().optional(),
   poNumber: z.string().trim().max(100).nullable().optional(),
+  periodStart: z.coerce.date().nullable().optional(),
+  periodEnd: z.coerce.date().nullable().optional(),
   dueDate: z.coerce.date().optional(),
   items: z.array(lineItem).min(1).max(50).optional(),
   notes: z.string().max(1000).optional(),

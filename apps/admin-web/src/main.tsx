@@ -23,6 +23,7 @@ import { SalesDocumentsPage } from "./features/quotations/SalesDocumentsPage";
 import { SalesDocumentForm } from "./features/quotations/SalesDocumentForm";
 import { NotesPage } from "./features/notes/NotesPage";
 import { PaymentsPage } from "./features/payments/PaymentsPage";
+import { FinancialControlsPage } from "./features/accounting/FinancialControlsPage";
 import { BillingRunsPage } from "./features/billing-runs/BillingRunsPage";
 import { NotificationsPage } from "./features/notifications/NotificationsPage";
 import { SuppliersPage } from "./features/suppliers/SuppliersPage";
@@ -104,6 +105,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/employees" element={<ProtectedRoute permission="employee:read"><EmployeesPage /></ProtectedRoute>} />
             <Route path="/attendance" element={<ProtectedRoute permission="attendance:read"><AttendancePage /></ProtectedRoute>} />
             <Route path="/payroll" element={<ProtectedRoute permission="payroll:read"><PayrollPage /></ProtectedRoute>} />
+            <Route path="/financial-controls" element={<ProtectedRoute permission="report:read"><FinancialControlsPage /></ProtectedRoute>} />
             <Route path="/day-book" element={<ProtectedRoute permission="day_book:read"><DayBookPage /></ProtectedRoute>} />
             <Route path="/reports/sales" element={<ProtectedRoute permission="report:read"><SalesReportPage /></ProtectedRoute>} />
             <Route path="/reports/purchases" element={<ProtectedRoute permission="report:read"><PurchaseReportPage /></ProtectedRoute>} />

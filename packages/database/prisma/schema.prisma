@@ -1464,6 +1464,8 @@ model NotificationLog {
   body      String?
   status    NotificationStatus  @default(QUEUED)
   attempts  Int                 @default(0)
+  nextAttemptAt DateTime?
+  lockedUntil DateTime?
   error     String?
   refType   String?
   refId     String?
@@ -1471,6 +1473,7 @@ model NotificationLog {
   createdAt DateTime            @default(now())
 
   @@index([tenantId, status, createdAt])
+  @@index([status, nextAttemptAt, lockedUntil], map: "NotificationLog_retry_idx")
 }
 
 // ─────────────────────────────────────────────── INFRA: OUTBOX / IDEMPOTENCY / REPORT JOBS
@@ -1509,4 +1512,64 @@ model ReportJob {
   finishedAt  DateTime?
 
   @@index([tenantId, requestedById, createdAt])
+}
+
+// Explicit double-entry journals. Historical operational records are not inferred.
+model FinancialAccount {
+  id String @id @default(uuid())
+  tenantId String
+  code String
+  name String
+  type String
+  isMoneyAccount Boolean @default(false)
+  isActive Boolean @default(true)
+  lines JournalLine[]
+  statements BankStatementLine[]
+  @@unique([tenantId, code])
+}
+model JournalEntry {
+  id String @id @default(uuid())
+  tenantId String
+  fyCode String
+  entryDate DateTime @db.Date
+  narration String
+  source String @default("MANUAL")
+  sourceId String?
+  reversalOf String?
+  createdById String
+  createdAt DateTime @default(now())
+  lines JournalLine[]
+  @@unique([tenantId, source, sourceId])
+  @@unique([tenantId, reversalOf])
+  @@index([tenantId, fyCode, entryDate])
+}
+model JournalLine {
+  id String @id @default(uuid())
+  tenantId String
+  journalId String
+  journal JournalEntry @relation(fields: [journalId], references: [id])
+  accountId String
+  account FinancialAccount @relation(fields: [accountId], references: [id])
+  debit Decimal @default(0) @db.Decimal(14,2)
+  credit Decimal @default(0) @db.Decimal(14,2)
+  statement BankStatementLine?
+  @@index([tenantId, accountId])
+}
+model BankStatementLine {
+  id String @id @default(uuid())
+  tenantId String
+  accountId String
+  account FinancialAccount @relation(fields: [accountId], references: [id])
+  statementDate DateTime @db.Date
+  reference String
+  narration String
+  debit Decimal @default(0) @db.Decimal(14,2)
+  credit Decimal @default(0) @db.Decimal(14,2)
+  importKey String
+  journalLineId String? @unique
+  journalLine JournalLine? @relation(fields: [journalLineId], references: [id])
+  reconciledById String?
+  reconciledAt DateTime?
+  @@unique([tenantId, accountId, importKey])
+  @@index([tenantId, accountId, statementDate])
 }

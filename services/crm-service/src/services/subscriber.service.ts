@@ -1,5 +1,5 @@
 import { Prisma, allocateNumber, prisma } from "@fii/database";
-import { badRequest, notFound } from "@fii/common";
+import { badRequest, notFound, billingCycleSpan } from "@fii/common";
 import type { z } from "zod";
 import type { subscriberCreateBody, subscriberListQuery } from "../validators.js";
 
@@ -30,13 +30,31 @@ export async function listSubscribers(tenantId: string, q: ListQuery) {
       take: q.limit,
       orderBy: { createdAt: "desc" },
       include: {
-        customer: { select: { id: true, name: true, phone: true } },
+        customer: { select: { id: true, name: true, phone: true, isActive: true } },
         plans: { where: { endDate: null }, include: { plan: true } },
       },
     }),
     prisma.subscriber.count({ where }),
   ]);
-  return { items, total, page: q.page, limit: q.limit };
+  const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
+  const invoices = await prisma.invoice.findMany({ where: { tenantId, subscriberId: { in: items.map(s => s.id) }, periodEnd: { gte: today } },
+    select: { subscriberId: true, periodStart: true, periodEnd: true, status: true, invoiceType: true } });
+  const enriched = items.map(sub => {
+    const serviceStart = sub.plans.length ? new Date(Math.min(...sub.plans.map(p => p.startDate.getTime()))) : sub.activationDate;
+    let nextBilling: { invoiceDate: Date; periodStart: Date; periodEnd: Date } | null = null;
+    if (sub.status === "ACTIVE" && sub.customer.isActive && sub.plans.length) for (let offset = -11; offset < 25; offset++) {
+      const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + offset, 1));
+      const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
+      const span = billingCycleSpan(sub.subscriberType, serviceStart, sub.billingCycleMonths, start, end);
+      if (!span || span.spanEnd < today) continue;
+      if (sub.plans.some(p => p.startDate <= span.spanEnd && p.startDate > span.spanStart && sub.billingCycleMonths > 1)) continue;
+      if (invoices.some(i => i.subscriberId === sub.id && i.periodStart && i.periodEnd && ((i.status !== "CANCELLED" && i.periodStart <= span.spanEnd && i.periodEnd >= span.spanStart) || (i.invoiceType === "SUBSCRIPTION" && i.periodStart.getTime() === span.spanStart.getTime())))) continue;
+      nextBilling = { invoiceDate: sub.subscriberType === "PREPAID" ? span.spanStart : span.spanEnd, periodStart: span.spanStart, periodEnd: span.spanEnd };
+      break;
+    }
+    return { ...sub, nextBilling };
+  });
+  return { items: enriched, total, page: q.page, limit: q.limit };
 }
 
 export async function getSubscriber(tenantId: string, id: string) {

@@ -14,6 +14,7 @@ const connectionDraft = (mapping: Mapping): ConnectionDraft => ({ planId: mappin
 interface SubRow {
   id: string; code: string; subscriberType: "PREPAID" | "POSTPAID";
   billingCycleMonths: number;
+  nextBilling?: { invoiceDate: string; periodStart: string; periodEnd: string } | null;
   chargeGst: boolean;
   poNumber?: string | null;
   status: "ACTIVE" | "SUSPENDED" | "TERMINATED"; activationDate: string;
@@ -34,7 +35,7 @@ const EMPTY: CreateForm = {
 };
 
 const CYCLES: Array<[string, string]> = [
-  ["1", "Monthly"], ["3", "Quarterly"], ["6", "Half-yearly"], ["12", "Annual"],
+  ["1", "Monthly"], ["3", "Quarterly (Apr/Jul/Oct/Jan)"], ["6", "Half-yearly (Apr/Oct)"], ["12", "Annual (Apr–Mar)"],
 ];
 const cycleLabel = (n: number) => CYCLES.find(([v]) => Number(v) === n)?.[1] ?? `${n} mo`;
 const connectionSince = (subscriber: SubRow) => subscriber.plans.length
@@ -174,7 +175,7 @@ export function SubscribersPage() {
 
       <table>
         <thead>
-          <tr><th>Code</th><th>Customer</th><th>Type</th><th>Plans</th><th>Status</th><th>Since</th><th /></tr>
+          <tr><th>Code</th><th>Customer</th><th>Type</th><th>Plans</th><th>Status</th><th>Since</th><th>Next billing / unbilled period</th><th /></tr>
         </thead>
         <tbody>
           {subs.data?.items.map((s) => (
@@ -195,6 +196,7 @@ export function SubscribersPage() {
               </td>
               <td><span className={`badge ${s.status === "ACTIVE" ? "ok" : s.status === "TERMINATED" ? "warn" : ""}`}>{s.status}</span></td>
               <td title={`Earliest active connection start. Subscriber activated ${formatDate(s.activationDate)}`}>{formatDate(connectionSince(s))}</td>
+              <td>{s.nextBilling ? <>{formatDate(s.nextBilling.invoiceDate)}<small>{formatDate(s.nextBilling.periodStart)} – {formatDate(s.nextBilling.periodEnd)}</small></> : "—"}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 {hasPerm("subscriber:update") && s.status !== "TERMINATED" && (
                   <>
@@ -330,7 +332,7 @@ export function SubscribersPage() {
               <span style={{ color: "var(--muted)", fontSize: 12 }}>applies from the next billing cycle</span>
             </div>
             <table style={{ fontSize: 13 }}>
-              <thead><tr><th>Plan</th><th>Price</th><th>Since</th><th /></tr></thead>
+              <thead><tr><th>Plan</th><th>Price</th><th>Since</th><th>Next billing / unbilled period</th><th /></tr></thead>
               <tbody>
                 {manageFor.plans.map((m) => {
                   const draft = connectionDrafts[m.id] ?? connectionDraft(m);

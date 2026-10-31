@@ -8,6 +8,7 @@ import { dayBookRouter, ledgerRouter } from "./daybook.js";
 import { reportsRouter } from "./reports.js";
 import { gstRouter } from "./gst.js";
 import { gstr1FilesRouter } from "./gstr1-files.js";
+import { financialControlsRouter } from "./financial-controls.js";
 import { exportsRouter } from "./exports.js";
 
 const log = createLogger("accounting-service");
@@ -23,6 +24,7 @@ mountOps(app, {
   checks: [{ name: "db", check: async () => { await prisma.$queryRaw`SELECT 1`; } }],
 });
 
+app.use("/api/v1/financial-controls", financialControlsRouter);
 app.use("/api/v1/day-book", dayBookRouter);
 app.use("/api/v1/ledger", ledgerRouter);
 app.use("/api/v1/gst", gstr1FilesRouter);

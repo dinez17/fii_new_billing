@@ -46,7 +46,7 @@ function renderReceipt(doc: PDFKit.PDFDocument, receipt: Loaded["receipt"], tena
   shade(L, T, R - L, 20);
   line(L, T + 20, R, T + 20);
   doc.font("Helvetica-Bold").fontSize(11).fillColor("#000")
-    .text("PAYMENT RECEIPT", L, T + 5, { width: R - L, align: "center" });
+    .text(p.status === "REFUNDED" ? "REVERSED / REFUNDED RECEIPT — NOT VALID" : "PAYMENT RECEIPT", L, T + 5, { width: R - L, align: "center" });
   doc.font("Helvetica-Bold").fontSize(8)
     .text("ORIGINAL FOR RECIPIENT", L, T + 6, { width: R - L - 8, align: "right" });
 

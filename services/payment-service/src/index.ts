@@ -33,11 +33,25 @@ paymentsRouter.get("/tds-report", authorize("payment:read"), h(async (req, res) 
   res.setHeader("Cache-Control", "no-store");
   res.json(await payments.tdsReport(req.auth!.tenantId, parse(payments.tdsReportQuery, req.query)));
 }));
+paymentsRouter.get("/tds-details/:customerId", authorize("payment:read"), h(async (req,res) => {
+  const q = parse(payments.tdsReportQuery, req.query);
+  const fy = q.fyCode ?? (await prisma.financialYear.findFirst({ where: { tenantId: req.auth!.tenantId, isActive: true } }))?.code;
+  res.setHeader("Cache-Control", "no-store");
+  res.json(fy ? await payments.tdsDetails(req.auth!.tenantId, fy, req.params.customerId) : []);
+}));
+paymentsRouter.post("/:id/tds-review", authorize("payment:update"), h(async (req,res) => {
+  res.json(await payments.saveTdsReview(req.auth!.tenantId, req.auth!.sub, req.params.id, parse(payments.tdsReviewBody, req.body)));
+}));
 paymentsRouter.get("/:id", authorize("payment:read"), h(async (req, res) => {
   res.json(await payments.getPayment(req.auth!.tenantId, req.params.id));
 }));
 paymentsRouter.post("/", authorize("payment:create"), h(async (req, res) => {
   res.status(201).json(await payments.createPayment(req.auth!.tenantId, req.auth!.sub, parse(payments.paymentCreateBody, req.body)));
+}));
+
+paymentsRouter.post("/:id/reverse", authorize("payment:update"), h(async (req, res) => {
+  const body = parse(payments.reversePaymentBody, req.body);
+  res.json(await payments.reversePayment(req.auth!.tenantId, req.auth!.sub, req.params.id, body.reason));
 }));
 
 const receiptsRouter = Router();

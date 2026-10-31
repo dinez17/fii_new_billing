@@ -1,5 +1,5 @@
 import { Prisma, allocateNumber, prisma, termsFor } from "@fii/database";
-import { computeGst, createLogger } from "@fii/common";
+import { billingCycleSpan, computeGst, createLogger } from "@fii/common";
 import { TOPICS, makeEnvelope } from "@fii/kafka";
 
 const log = createLogger("billing-worker");
@@ -16,40 +16,6 @@ export interface RunSpec {
 
 const fmt = (d: Date) =>
   d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-
-const startOfMonthUTC = (d: Date, addMonths = 0) =>
-  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + addMonths, 1));
-const endOfMonthUTC = (d: Date, addMonths = 0) =>
-  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + addMonths + 1, 0));
-const monthDiff = (from: Date, to: Date) =>
-  (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
-
-/**
- * Subscribers choose a billing frequency (1/3/6/12 months) anchored to their
- * activation month. The scheduler still runs monthly; a subscriber is "due"
- * in this run only when their cycle boundary lands on this month:
- *   PREPAID  → billed at the START of each N-month span
- *   POSTPAID → billed at the END of each N-month span
- * Returns null when not due.
- */
-function cycleSpan(
-  cycleType: "PREPAID" | "POSTPAID",
-  activationDate: Date,
-  cycleMonths: number,
-  periodStart: Date,
-  periodEnd: Date,
-): { spanStart: Date; spanEnd: Date } | null {
-  const n = Math.max(1, cycleMonths);
-  const diff = monthDiff(startOfMonthUTC(activationDate), periodStart);
-  if (diff < 0) return null; // activated after this period
-  if (cycleType === "PREPAID") {
-    if (diff % n !== 0) return null;
-    return { spanStart: periodStart, spanEnd: endOfMonthUTC(periodStart, n - 1) };
-  }
-  // POSTPAID: bill when the span's last month completes
-  if ((diff + 1) % n !== 0 || diff < n - 1) return null;
-  return { spanStart: startOfMonthUTC(periodStart, -(n - 1)), spanEnd: periodEnd };
-}
 
 /**
  * Generates one billing run. Idempotent and re-runnable:
@@ -112,13 +78,13 @@ export async function processRun(spec: RunSpec): Promise<void> {
     for (const sub of subscribers) {
       if (sub.plans.length === 0 && sub._count.plans > 0) continue; // all connections start in a later period
       // frequency check — quarterly/half-yearly/annual subscribers are only
-      // due on their cycle boundary months; others are skipped silently
+      // due on fixed April–March financial-year boundaries; partial initial cycles are manual
       // A saved connection can predate subscriber creation (historical billing).
       // Use the same service start shown by the subscriber list.
       const serviceStart = sub.plans.length
         ? sub.plans.reduce((earliest, mapping) => mapping.startDate < earliest ? mapping.startDate : earliest, sub.plans[0].startDate)
         : sub.activationDate;
-      const span = cycleSpan(cycleType, serviceStart, sub.billingCycleMonths, periodStart, periodEnd);
+      const span = billingCycleSpan(cycleType, serviceStart, sub.billingCycleMonths, periodStart, periodEnd);
       if (!span) continue;
       const { spanStart, spanEnd } = span;
 
@@ -138,6 +104,7 @@ export async function processRun(spec: RunSpec): Promise<void> {
 
         const mappings = sub.plans;
         if (mappings.length === 0) throw new Error("no active plan mapped");
+        if (sub.billingCycleMonths > 1 && mappings.some(m => m.startDate > spanStart)) throw new Error("Connection starts inside period; review initial manual billing");
         if (!sub.customer.isActive) throw new Error("customer inactive");
 
         const placeOfSupply = sub.customer.stateCode ?? tenant.stateCode!;
@@ -156,6 +123,15 @@ export async function processRun(spec: RunSpec): Promise<void> {
         );
 
         const invoiceId = await prisma.$transaction(async (tx) => {
+          // Serialize automatic and manual subscriber invoice creation.
+          await tx.$queryRaw`SELECT id FROM "Subscriber" WHERE "tenantId" = ${tenantId} AND id = ${sub.id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM "FinancialYear" WHERE "tenantId" = ${tenantId} AND id = ${fy.id} FOR SHARE`;
+          const currentFy = await tx.financialYear.findUniqueOrThrow({ where: { id: fy.id } });
+          if (currentFy.isLocked) throw new Error("Financial year is locked");
+          const currentSub = await tx.subscriber.findUniqueOrThrow({ where: { id: sub.id }, include: { customer: true } });
+          if (currentSub.status !== "ACTIVE" || !currentSub.customer.isActive || currentSub.updatedAt.getTime() !== sub.updatedAt.getTime()) throw new Error("Subscriber changed; preview and retry billing");
+          const overlapping = await tx.invoice.findFirst({ where: { tenantId, subscriberId: sub.id, status: { not: "CANCELLED" }, periodStart: { lte: spanEnd }, periodEnd: { gte: spanStart } } });
+          if (overlapping) throw new Error(`Period overlaps invoice ${overlapping.invoiceNumber}`);
           const invoiceNumber = await allocateNumber(tx, tenantId, sub.chargeGst ? "INVOICE" : "NON_GST_INVOICE", fy.code);
           const invoice = await tx.invoice.create({
             data: {

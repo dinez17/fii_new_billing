@@ -10,7 +10,7 @@ import { prisma } from "@fii/database";
 import { createLogger, startOpsServer, customerMailRecipients } from "@fii/common";
 import { TOPICS, runConsumer, type EventEnvelope } from "@fii/kafka";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
-import { dispatch } from "./send.js";
+import { dispatch, retryNotifications } from "./send.js";
 
 const log = createLogger("notification-worker");
 
@@ -71,6 +71,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
     }
     case TOPICS.PAYMENT_SUCCESS: {
       const p = event.payload as { paymentId: string; customerId: string; amount: string; receiptNumber: string };
+      const payment = await prisma.payment.findFirst({ where: { tenantId, id: p.paymentId } });
+      if (!payment || payment.status !== "SUCCESS") break;
       const c = await customerContact(tenantId, p.customerId);
       let attachments: { filename: string; content: Buffer }[] | undefined;
       try {
@@ -188,9 +190,16 @@ async function main() {
     handler: handle,
   });
   log.info("notification-worker consuming");
+  let retrying = false;
+  const timer = setInterval(() => {
+    if (retrying) return;
+    retrying = true;
+    void retryNotifications().catch(err => log.error({ err: String(err) }, "Notification retry scan failed")).finally(() => { retrying = false; });
+  }, 30000);
+  timer.unref();
   const stopOps = startOpsServer({ name: "notification-worker", port: Number(process.env.NOTIFICATION_WORKER_OPS_PORT ?? 9103), checks: [{ name: "db", check: async () => { await prisma.$queryRaw`SELECT 1`; } }] });
-  process.on("SIGINT", async () => { stopOps(); await stop(); process.exit(0); });
-  process.on("SIGTERM", async () => { stopOps(); await stop(); process.exit(0); });
+  process.on("SIGINT", async () => { clearInterval(timer); stopOps(); await stop(); process.exit(0); });
+  process.on("SIGTERM", async () => { clearInterval(timer); stopOps(); await stop(); process.exit(0); });
 }
 
 main().catch((err) => { log.error({ err: String(err) }, "fatal"); process.exit(1); });

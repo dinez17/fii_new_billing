@@ -118,3 +118,26 @@ loopback as configured in Compose. Staff and customer login endpoints allow ten
 unsuccessful requests per client address per 15 minutes. Successful responses do
 not consume that allowance. A blocked request returns HTTP 429 with a
 `Retry-After` header and a JSON error; the admin consoles display the wait time.
+
+
+## Recovery controls added 31 October 2026
+
+Set BACKUP_REQUIRE_OBJECTS=true when object files are required, and
+BACKUP_REQUIRE_OFFSITE=true only after configuring BACKUP_AGE_RECIPIENT and
+BACKUP_S3_URI. Object-copy errors fail the backup. Relative checksums cover the
+database and object files. Retention removes only completed backup folders inside
+the configured root; older folders without .complete require operator review.
+
+Run scripts/recovery-drill.sh <db.dump> <expected-sha256> <evidence.json> to restore
+into a disposable network-isolated PostgreSQL container. It never accepts a live
+target database URL. It verifies the dump checksum and records restore duration
+and business counts; object files, key recovery, application login and PDFs still
+require separate rehearsal. Off-server storage is deferred by the user.
+
+Email notifications retry per persisted log with a two-minute lease, exponential
+backoff and a five-attempt cap. Failed emails can be queued again from Send log
+with settings:update; the action is audited. Retries rebuild financial PDFs and
+check document validity. A stable Message-ID assists deduplication, but SMTP
+acceptance followed by a worker crash can still cause duplicate delivery. Check
+provider logs before manually retrying an ambiguous final attempt. SMS/WhatsApp
+providers are not activated; the current scope is email only.

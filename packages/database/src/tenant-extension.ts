@@ -7,7 +7,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
  * `Role` is excluded because system roles have tenantId = null.
  */
 export const TENANT_SCOPED_MODELS = new Set<string>([
-  "User", "AuditLog", "LegacyRecord",
+  "User", "AuditLog", "LegacyRecord", "FinancialAccount", "JournalEntry", "JournalLine", "BankStatementLine",
   "Customer", "Plan", "Subscriber", "SubscriberPlan",
   "FinancialYear", "NumberSeries",
   "BillingRun", "Invoice", "SalesDocument", "CreditNote", "DebitNote",

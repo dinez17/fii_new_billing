@@ -274,6 +274,20 @@ app.get("/api/v1/notification-logs", authenticate, authorize("settings:read"), h
   res.json({ items, total, page: q.page, limit: q.limit });
 }));
 
+app.post("/api/v1/notification-logs/:id/retry", authenticate, authorize("settings:update"), h(async (req, res) => {
+  const tenantId = req.auth!.tenantId;
+  const result = await prisma.$transaction(async tx => {
+    const row = await tx.notificationLog.findFirst({ where: { id: req.params.id, tenantId } });
+    if (!row || row.channel !== "EMAIL" || row.status !== "FAILED") throw badRequest("Only failed email notifications can be retried");
+    const changed = await tx.notificationLog.updateMany({ where: { id: row.id, tenantId, status: "FAILED", OR: [{ lockedUntil: null }, { lockedUntil: { lt: new Date() } }] },
+      data: { status: "QUEUED", nextAttemptAt: new Date(), lockedUntil: null, attempts: 0, error: null } });
+    if (!changed.count) throw badRequest("Notification is already being retried");
+    await tx.auditLog.create({ data: { tenantId, userId: req.auth!.sub, action: "NOTIFICATION_RETRY_REQUESTED", entity: "NotificationLog", entityId: row.id, after: { previousAttempts: row.attempts } } });
+    return { queued: true };
+  });
+  res.json(result);
+}));
+
 // Tenant-scoped backups; whole-database restore is operator-only (scripts/restore.sh).
 app.use("/api/v1/backup", tenantBackupRouter);
 

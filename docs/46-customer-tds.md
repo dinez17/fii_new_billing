@@ -9,3 +9,18 @@ Payments → TDS report defaults to the active financial year and shows the full
 Receipt PDFs show cash and TDS separately and the combined settlement. Sales collection totals exclude TDS. Balance sheet includes recorded successful deductions as TDS receivable; this feature does not reconcile tax-credit statements, record refunds or clear TDS against income-tax liabilities. Recorded deductions are not proof of tax deposit/credit. No rate is assumed or calculated automatically.
 
 Migration 20261031000100_customer_tds adds default-zero TDS fields and an optional reference. It does not change historic balances, receipts or imported review holds. Tenant backups include the new fields under the existing schema-version checks; backups from a different schema require the corresponding software version to restore.
+
+
+TDS report → Review credits lists the individual successful deductions. Record
+verified credit, a certificate/statement reference, confirmed date and review note;
+optionally attach a PDF up to 500 KB. Evidence is encrypted in the tenant's
+TDS_RECONCILIATION settings and read only through payment-authorized endpoints.
+Verified credit cannot exceed the deduction. This review does not change cash,
+customer outstanding or TDS receivable, and does not implement tax clearing.
+
+Successful manual receipts can be reversed with payment:update and a required
+reason, in their active unlocked financial year. The original receipt/allocations
+remain for audit, invoice settlements are reduced by cash plus TDS, and opposite
+ledger/daybook entries correct the original date. The stored REFUNDED status is
+labelled Reversed / refunded; receipt PDFs are marked invalid. Gateway refunds
+must be confirmed separately and are not performed by this correction endpoint.

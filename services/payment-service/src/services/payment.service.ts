@@ -1,5 +1,5 @@
-import { Prisma, prisma } from "@fii/database";
-import { badRequest, notFound, transactionPeriodFilters } from "@fii/common";
+import { Prisma, prisma, postCustomerPayment } from "@fii/database";
+import { badRequest, notFound, transactionPeriodFilters, encryptSecret, decryptSecret } from "@fii/common";
 import { z } from "zod";
 import { settleWithinTx } from "./settle.js";
 
@@ -159,4 +159,77 @@ export async function tdsReport(tenantId: string, query: z.infer<typeof tdsRepor
       .sort((a,b) => Number(b.tdsAmount) - Number(a.tdsAmount) || a.customer.name.localeCompare(b.customer.name));
     return { financialYear: { code: fy.code, startDate: fy.startDate, endDate: fy.endDate }, items, totalTds: groups.reduce((sum,g) => sum.add(g._sum.tdsAmount ?? 0), new Prisma.Decimal(0)).toFixed(2), entries: groups.reduce((sum,g) => sum + g._count,0) };
   }, { isolationLevel: "RepeatableRead" });
+}
+
+export const reversePaymentBody = z.object({ reason: z.string().trim().min(10).max(500) });
+/** Correction of a recorded receipt, not a gateway refund instruction. */
+export async function reversePayment(tenantId: string, actorId: string, id: string, reason: string) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "Payment" WHERE "tenantId" = ${tenantId} AND id = ${id} FOR UPDATE`;
+    const payment = await tx.payment.findFirst({ where: { id, tenantId }, include: { allocations: true, receipt: true } });
+    if (!payment) throw notFound("Payment");
+    if (payment.status !== "SUCCESS") throw badRequest("Only successful payments can be reversed; this payment may already be reversed");
+    if (payment.gateway) throw badRequest("Gateway payments require a confirmed provider refund; they cannot be reversed as manual receipts");
+    await tx.$queryRaw`SELECT id FROM "FinancialYear" WHERE "tenantId" = ${tenantId} AND code = ${payment.fyCode} FOR SHARE`;
+    const fy = await activeFy(tenantId, payment.paymentDate, tx);
+    if (fy.code !== payment.fyCode) throw badRequest("Payment financial year must be active and unlocked");
+    if (!payment.receipt) throw badRequest("Payment has no receipt; reconcile before reversal");
+    if (payment.allocations.length) await tx.$queryRaw`SELECT id FROM "Invoice" WHERE "tenantId" = ${tenantId} AND id IN (${Prisma.join(payment.allocations.map(a => a.invoiceId))}) ORDER BY id FOR UPDATE`;
+    // Complete a pending original posting under the same payment lock before its reversal.
+    await postCustomerPayment(tx, { tenantId, customerId: payment.customerId, paymentId: id, fyCode: payment.fyCode,
+      entryDate: payment.paymentDate, amount: payment.amount.toFixed(2), tdsAmount: payment.tdsAmount.toFixed(2),
+      mode: payment.mode, receiptNumber: payment.receipt.receiptNumber, actorId: payment.createdById });
+    for (const allocation of payment.allocations) {
+      const invoice = await tx.invoice.findFirst({ where: { tenantId, id: allocation.invoiceId, customerId: payment.customerId } });
+      if (!invoice || invoice.status === "CANCELLED") throw badRequest("An allocated invoice is missing or cancelled; reconcile before reversal");
+      const amountPaid = invoice.amountPaid.sub(allocation.amount).sub(allocation.tdsAmount);
+      if (amountPaid.isNegative()) throw badRequest("Invoice settlement disagrees with the receipt; reconcile before reversal");
+      const status = amountPaid.add(invoice.creditedAmount).gte(invoice.grandTotal) ? "PAID" : amountPaid.gt(0) ? "PARTIAL" : "UNPAID";
+      await tx.invoice.update({ where: { id: invoice.id }, data: { amountPaid, status } });
+    }
+    await tx.ledgerEntry.create({ data: { tenantId, partyType: "CUSTOMER", partyId: payment.customerId,
+      fyCode: payment.fyCode, entryDate: payment.paymentDate, entryType: "ADJUSTMENT", refType: "PAYMENT_REVERSAL", refId: id,
+      refNumber: payment.receipt.receiptNumber, debit: payment.amount.add(payment.tdsAmount), narration: `Receipt reversed: ${reason}` } });
+    if (payment.amount.gt(0)) await tx.dayBookEntry.create({ data: { tenantId, fyCode: payment.fyCode, entryDate: payment.paymentDate,
+      type: "CASH_OUT", source: "INVOICE_PAYMENT", mode: payment.mode, amount: payment.amount,
+      refType: "PAYMENT_REVERSAL", refId: id, narration: `Receipt ${payment.receipt.receiptNumber} reversed: ${reason}`, createdById: actorId } });
+    await tx.payment.update({ where: { id }, data: { status: "REFUNDED", failureReason: `REVERSED: ${reason}` } });
+    await tx.auditLog.create({ data: { tenantId, userId: actorId, action: "PAYMENT_REVERSED", entity: "Payment", entityId: id,
+      before: { status: payment.status, cash: payment.amount.toFixed(2), tds: payment.tdsAmount.toFixed(2) },
+      after: { status: "REFUNDED", reason, effectiveDate: payment.paymentDate.toISOString() } } });
+    return { id, status: "REFUNDED", reversed: true };
+  }, { timeout: 30000 });
+}
+
+export const tdsReviewBody = z.object({ verifiedAmount: money, certificateReference: z.string().trim().min(1).max(100),
+  confirmedDate: z.coerce.date(), note: z.string().trim().min(10).max(500),
+  certificateBase64: z.string().max(700000).optional() });
+export async function saveTdsReview(tenantId: string, actorId: string, id: string, input: z.infer<typeof tdsReviewBody>) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "Payment" WHERE "tenantId" = ${tenantId} AND id = ${id} FOR UPDATE`;
+    const payment = await tx.payment.findFirst({ where: { tenantId, id, status: "SUCCESS", tdsAmount: { gt: 0 } } });
+    if (!payment) throw notFound("Successful TDS payment");
+    if (new Prisma.Decimal(input.verifiedAmount).gt(payment.tdsAmount)) throw badRequest("Verified credit cannot exceed this receipt's TDS deduction");
+    let certificate: string | undefined;
+    if (input.certificateBase64) {
+      const bytes = Buffer.from(input.certificateBase64, "base64");
+      if (bytes.length > 500000 || bytes.subarray(0,5).toString() !== "%PDF-") throw badRequest("Attach a PDF certificate up to 500 KB");
+      certificate = bytes.toString("base64");
+    }
+    const key = { tenantId, group: "TDS_RECONCILIATION", key: id };
+    const old = await tx.setting.findUnique({ where: { tenantId_group_key: key } });
+    const previous = old ? JSON.parse(decryptSecret(old.value)) : {};
+    const value = { verifiedAmount: input.verifiedAmount.toFixed(2), certificateReference: input.certificateReference,
+      confirmedDate: input.confirmedDate.toISOString(), note: input.note, certificateBase64: certificate ?? previous.certificateBase64,
+      reviewedBy: actorId, reviewedAt: new Date().toISOString() };
+    await tx.setting.upsert({ where: { tenantId_group_key: key }, create: { ...key, isSecret: true, value: encryptSecret(JSON.stringify(value)) }, update: { isSecret: true, value: encryptSecret(JSON.stringify(value)) } });
+    await tx.auditLog.create({ data: { tenantId, userId: actorId, action: "TDS_CREDIT_REVIEWED", entity: "Payment", entityId: id,
+      after: { verifiedAmount: value.verifiedAmount, certificateReference: input.certificateReference, certificateAttached: !!value.certificateBase64 } } });
+    return { saved: true };
+  });
+}
+export async function tdsDetails(tenantId: string, fyCode: string, customerId: string) {
+  const payments = await prisma.payment.findMany({ where: { tenantId, fyCode, customerId, status: "SUCCESS", tdsAmount: { gt: 0 } }, include: { receipt: true }, orderBy: { paymentDate: "asc" } });
+  const reviews = await prisma.setting.findMany({ where: { tenantId, group: "TDS_RECONCILIATION", key: { in: payments.map(p => p.id) } } });
+  return payments.map(p => { const review = reviews.find(r => r.key === p.id); return { ...p, review: review ? JSON.parse(decryptSecret(review.value)) : null }; });
 }

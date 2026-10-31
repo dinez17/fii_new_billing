@@ -28,7 +28,7 @@ function preview(items: Item[]) {
 }
 
 interface EditableInvoice {
-  chargeGst: boolean;
+  chargeGst: boolean; periodStart?: string | null; periodEnd?: string | null;
   id: string; invoiceNumber: string; status: string; amountPaid: string; customerId: string; subscriberId?: string | null;
   invoiceDate: string; dueDate: string; notes?: string | null; terms?: string | null; poNumber?: string | null;
   customer: CustomerLite; subscriber?: { id: string; code: string; poNumber?: string | null; chargeGst?: boolean } | null;
@@ -54,6 +54,7 @@ function InvoiceEditor({ invoice, defaultChargeGst }: { invoice?: EditableInvoic
     customerId: invoice?.customerId ?? "",
     invoiceDate: invoice?.invoiceDate.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     dueDate: invoice?.dueDate.slice(0, 10) ?? new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10),
+    periodStart: invoice?.periodStart?.slice(0, 10) ?? "", periodEnd: invoice?.periodEnd?.slice(0, 10) ?? "",
     notes: invoice?.notes ?? "", terms: invoice?.terms ?? "",
     items: invoice?.items.map((it) => ({ ...it, productId: it.productId ?? "", hsnSac: it.hsnSac ?? "" })) ?? [{ ...EMPTY_ITEM }] as Item[],
   });
@@ -78,6 +79,7 @@ function InvoiceEditor({ invoice, defaultChargeGst }: { invoice?: EditableInvoic
         poNumber: poNumber ?? selectedSubscriber?.poNumber ?? null,
         invoiceDate: form.invoiceDate,
         dueDate: form.dueDate,
+        periodStart: form.periodStart || null, periodEnd: form.periodEnd || null,
         notes: form.notes,
         terms: invoice ? form.terms : form.terms || undefined,
         items: effectiveItems.map((it) => ({
@@ -157,6 +159,13 @@ function InvoiceEditor({ invoice, defaultChargeGst }: { invoice?: EditableInvoic
         </div>
       </div>
 
+      <div className="card">
+        <p>Service period (optional). Link the subscriber and enter both dates for an initial manual bill; automatic billing checks these dates for overlap.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label>Service from</label><input type="date" aria-label="Service from" value={form.periodStart} onChange={e => setForm({ ...form, periodStart: e.target.value })} /></div>
+          <div><label>Service to</label><input type="date" aria-label="Service to" value={form.periodEnd} onChange={e => setForm({ ...form, periodEnd: e.target.value })} /></div>
+        </div>
+      </div>
       <div className="card">
         <label style={{ marginTop: 0 }}>Items — pick a product to auto-fill price/GST (stock decreases for goods), or use a custom line for services</label>
         <table style={{ fontSize: 13 }}>

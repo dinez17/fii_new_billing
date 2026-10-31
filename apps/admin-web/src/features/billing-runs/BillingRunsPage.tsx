@@ -50,6 +50,15 @@ export function BillingRunsPage() {
     enabled: !!detailId,
   });
 
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewKey, setPreviewKey] = useState("");
+  const preview = useQuery({
+    queryKey: ["billing-preview", form, previewPage], enabled: triggering && previewKey === JSON.stringify(form),
+    queryFn: async () => (await api.post("/billing-runs/preview", { ...form, page: previewPage, limit: 20 })).data as {
+      total: number; page: number; limit: number; items: Array<{ subscriberId: string; code: string; customer: string;
+        chargeGst: boolean; periodStart: string | null; periodEnd: string | null; amount: string | null; eligible: boolean; reason: string }>;
+    },
+  });
   const trigger = useMutation({
     mutationFn: async () => {
       await api.post("/billing-runs/trigger", {
@@ -80,7 +89,7 @@ export function BillingRunsPage() {
         </span>
         <div className="spacer" />
         {hasPerm("billing_run:create") && (
-          <button className="primary" onClick={() => { setTriggering(true); setError(""); }}>Run billing now</button>
+          <button className="primary" onClick={() => { setTriggering(true); setError(""); setPreviewKey(""); setPreviewPage(1); }}>Run billing now</button>
         )}
       </div>
 
@@ -110,7 +119,7 @@ export function BillingRunsPage() {
       {runs.data && <ListPager page={page} limit={runs.data.limit} total={runs.data.total} onChange={setPage} />}
 
       {triggering && (
-        <div className="modal-overlay" onClick={() => setTriggering(false)}>
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setTriggering(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Run billing</h3>
             <p style={{ color: "var(--muted)" }}>
@@ -138,10 +147,20 @@ export function BillingRunsPage() {
               <div><label>Year</label>
                 <input type="number" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} /></div>
             </div>
+            <p>Quarterly: Apr/Jul/Oct/Jan · Half-yearly: Apr/Oct · Annual: Apr–Mar. Initial partial periods are billed manually.</p>
+            <button disabled={preview.isFetching} onClick={() => { setPreviewPage(1); setPreviewKey(JSON.stringify(form)); void preview.refetch(); }}>Preview billing</button>
+            {preview.isError && <div className="error">{errMessage(preview.error)}</div>}
+            {previewKey === JSON.stringify(form) && preview.data && <>
+              <p>Read-only estimate. Eligibility and overlapping periods are checked again during generation.</p>
+              <ListTable><thead><tr><th>Subscriber / customer</th><th>Period</th><th>GST</th><th>Amount</th><th>Result</th></tr></thead><tbody>
+                {preview.data.items.map(item => <tr key={item.subscriberId}><td>{item.code} · {item.customer}</td><td>{item.periodStart?.slice(0,10) ?? "—"} – {item.periodEnd?.slice(0,10) ?? "—"}</td><td>{item.chargeGst ? "GST" : "Without GST"}</td><td>{item.amount ?? "—"}</td><td>{item.reason}</td></tr>)}
+              </tbody></ListTable>
+              <ListPager page={previewPage} limit={20} total={preview.data.total} onChange={setPreviewPage} />
+            </>}
             {error && <div className="error">{error}</div>}
             <div className="actions">
               <button onClick={() => setTriggering(false)}>Cancel</button>
-              <button className="primary" disabled={trigger.isPending} onClick={() => trigger.mutate()}>
+              <button className="primary" disabled={trigger.isPending || preview.isFetching || preview.isError || !preview.data || previewKey !== JSON.stringify(form)} onClick={() => trigger.mutate()}>
                 {trigger.isPending ? "Queuing…" : "Run billing"}
               </button>
             </div>

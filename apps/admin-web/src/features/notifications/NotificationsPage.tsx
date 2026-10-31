@@ -104,6 +104,9 @@ function LogsTab() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const [status, setStatus] = useState("");
+  const qc = useQueryClient();
+  const canRetry = useAuth(s => s.hasPerm("settings:update"));
+  const retry = useMutation({ mutationFn: async (id: string) => api.post(`/notification-logs/${id}/retry`), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["nlogs"] }); } });
 
   const logs = useQuery({
     queryKey: ["nlogs", page, status, pageSize],
@@ -121,8 +124,10 @@ function LogsTab() {
           <option value="">All status</option><option>SENT</option><option>FAILED</option><option>QUEUED</option>
         </select>
       </div>
+      {retry.isError && <div className="error">{errMessage(retry.error)}</div>}
+      <p>Emails retry automatically up to five attempts. Fix SMTP settings before retrying a failed message. SENT confirms SMTP acceptance, not inbox delivery.</p>
       <table>
-        <thead><tr><th>Time</th><th>Channel</th><th>To</th><th>Template</th><th>Status</th><th>Error</th></tr></thead>
+        <thead><tr><th>Time</th><th>Channel</th><th>To</th><th>Template</th><th>Status</th><th>Error / attempts</th><th /></tr></thead>
         <tbody>
           {logs.data?.items.map((l) => (
             <tr key={l.id}>
@@ -131,7 +136,7 @@ function LogsTab() {
               <td>{l.to}</td>
               <td><code>{l.templateCode ?? "—"}</code></td>
               <td><span className={`badge ${l.status === "SENT" ? "ok" : l.status === "FAILED" ? "warn" : ""}`}>{l.status}</span></td>
-              <td style={{ maxWidth: 280, fontSize: 12, color: "var(--danger)" }}>{l.error ?? ""}</td>
+              <td style={{ maxWidth: 280, fontSize: 12, color: "var(--danger)" }}>{l.error ?? ""} · {l.attempts} attempt(s)</td><td>{canRetry && l.channel === "EMAIL" && l.status === "FAILED" && <button disabled={retry.isPending} onClick={() => retry.mutate(l.id)}>Retry</button>}</td>
             </tr>
           ))}
           {logs.data && logs.data.items.length === 0 && (

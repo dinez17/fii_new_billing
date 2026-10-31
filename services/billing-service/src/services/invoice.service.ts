@@ -99,6 +99,8 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
   const defaultTerms = await termsFor(tenantId, "INVOICE", client);
 
   const create = async (tx: Prisma.TransactionClient) => {
+    if (input.subscriberId) await tx.$queryRaw`SELECT id FROM "Subscriber" WHERE "tenantId" = ${tenantId} AND id = ${input.subscriberId} FOR UPDATE`;
+    await validateServicePeriod(tx, tenantId, input.subscriberId, input.periodStart, input.periodEnd);
     const subscriber = input.subscriberId ? await tx.subscriber.findFirst({ where: { id: input.subscriberId, tenantId, customerId: customer.id }, select: { poNumber: true, chargeGst: true } }) : null;
     if (input.subscriberId && !subscriber) throw notFound("Subscriber");
     const chargeGst = subscriber?.chargeGst === false ? false : input.chargeGst ?? true;
@@ -113,6 +115,7 @@ export async function createInvoice(tenantId: string, actorId: string, input: Cr
         fyCode: fy.code,
         customerId: customer.id,
         subscriberId: input.subscriberId,
+        periodStart: input.periodStart, periodEnd: input.periodEnd,
         poNumber: input.poNumber !== undefined ? input.poNumber || null : subscriber?.poNumber ?? null,
         invoiceDate: input.invoiceDate,
         dueDate: input.dueDate,
@@ -231,10 +234,14 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
     const customer = await tx.customer.findFirst({ where: { id: customerId, tenantId } });
     if (!customer || (customerId !== invoice.customerId && !customer.isActive)) throw notFound("Customer");
     const subscriberId = input.subscriberId !== undefined ? input.subscriberId : customerId === invoice.customerId ? invoice.subscriberId : null;
+    if (subscriberId) await tx.$queryRaw`SELECT id FROM "Subscriber" WHERE "tenantId" = ${tenantId} AND id = ${subscriberId} FOR UPDATE`;
+    const periodStart = input.periodStart === undefined ? invoice.periodStart : input.periodStart;
+    const periodEnd = input.periodEnd === undefined ? invoice.periodEnd : input.periodEnd;
+    await validateServicePeriod(tx, tenantId, subscriberId, periodStart, periodEnd, id);
     const subscriber = subscriberId ? await tx.subscriber.findFirst({ where: { id: subscriberId, customerId, tenantId } }) : null;
     if (subscriberId && !subscriber) throw notFound("Subscriber");
     if (!input.items && customerId === invoice.customerId && invoiceDate.getTime() === invoice.invoiceDate.getTime()) {
-      return tx.invoice.update({ where: { id }, data: { subscriberId, dueDate, poNumber: input.poNumber === undefined ? undefined : input.poNumber || null, notes: input.notes, terms: input.terms }, include: { items: true } });
+      return tx.invoice.update({ where: { id }, data: { subscriberId, periodStart, periodEnd, dueDate, poNumber: input.poNumber === undefined ? undefined : input.poNumber || null, notes: input.notes, terms: input.terms }, include: { items: true } });
     }
     const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
     if (!tenant.stateCode) throw badRequest("Set company GST state code first");
@@ -251,7 +258,7 @@ export async function updateInvoice(tenantId: string, actorId: string, id: strin
     }
     await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
     const updated = await tx.invoice.update({ where: { id }, data: {
-      customerId, subscriberId, invoiceDate, dueDate,
+      customerId, subscriberId, periodStart, periodEnd, invoiceDate, dueDate,
       poNumber: input.poNumber === undefined ? undefined : input.poNumber || null,
       notes: input.notes, terms: input.terms,
       placeOfSupply, isInterState, gstTreatment: customer.gstTreatment, chargeGst: !noGst,
@@ -295,4 +302,13 @@ export async function cancelInvoice(tenantId: string, actorId: string, id: strin
     }, { actorUserId: actorId }));
     return updated;
   });
+}
+
+/** Explicit periods let manual initial invoices participate in overlap protection. */
+async function validateServicePeriod(tx: Prisma.TransactionClient, tenantId: string, subscriberId: string | null | undefined, start: Date | null | undefined, end: Date | null | undefined, excludeId?: string) {
+  if (!!start !== !!end || (start && end && end < start)) throw badRequest("Enter both service dates with the end on or after the start");
+  if (!start || !end || !subscriberId) return;
+  const overlapping = await tx.invoice.findFirst({ where: { tenantId, subscriberId, id: excludeId ? { not: excludeId } : undefined,
+    status: { not: "CANCELLED" }, periodStart: { lte: end }, periodEnd: { gte: start } } });
+  if (overlapping) throw badRequest(`Service period overlaps invoice ${overlapping.invoiceNumber}`);
 }

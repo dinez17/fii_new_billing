@@ -5,6 +5,7 @@ import { notFound } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
 import { TOPICS, makeEnvelope, publish } from "@fii/kafka";
 import { h, parse } from "../http.js";
+import { previewBilling } from "../services/billing-preview.js";
 
 const triggerBody = z.object({
   taxMode: z.enum(["ALL", "GST", "WITHOUT_GST"]).default("ALL"),
@@ -15,6 +16,12 @@ const triggerBody = z.object({
 
 export const billingRunsRouter = Router();
 billingRunsRouter.use(authenticate);
+
+billingRunsRouter.post("/preview", authorize("billing_run:create"), h(async (req, res) => {
+  const input = parse(triggerBody.extend({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(20) }), req.body);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await previewBilling(req.auth!.tenantId, input));
+}));
 
 billingRunsRouter.get("/", authorize("billing_run:read"), h(async (req, res) => {
   const q = parse(z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(50) }), req.query);

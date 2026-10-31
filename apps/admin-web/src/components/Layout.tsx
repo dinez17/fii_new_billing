@@ -54,6 +54,7 @@ const NAV: NavEntry[] = isPlatformConsole ? [
   {
     label: "Accounting",
     items: [
+      { path: "/financial-controls", label: "Financial Controls", permission: "report:read" },
       { path: "/day-book", label: "Day Book", permission: "day_book:read" },
       { path: "/ledger/customers", label: "Customer Ledger", permission: "report:read" },
       { path: "/ledger/suppliers", label: "Supplier Ledger", permission: "report:read" },

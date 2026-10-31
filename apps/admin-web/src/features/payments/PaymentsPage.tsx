@@ -25,6 +25,12 @@ export function PaymentsPage() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
   const [showTds, setShowTds] = useState(false);
+  const [reversing, setReversing] = useState<PaymentRow | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const reverse = useMutation({
+    mutationFn: async () => api.post(`/payments/${reversing!.id}/reverse`, { reason: reverseReason }),
+    onSuccess: () => { setReversing(null); setReverseReason(""); void qc.invalidateQueries(); },
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const period = useTransactionPeriod(() => setPage(1));
@@ -152,7 +158,7 @@ export function PaymentsPage() {
               <td>{inr(p.amount)}</td><td>{inr(p.tdsAmount ?? 0)}</td>
               <td><span className="badge">{p.mode}</span>{p.reference && <span style={{ color: "var(--muted)", marginLeft: 6, fontSize: 12 }}>{p.reference}</span>}</td>
               <td style={{ fontSize: 12 }}>{p.allocations.map((a) => a.invoice.invoiceNumber).join(", ")}</td>
-              <td>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}</td>
+              <td><span className={`badge ${p.status === "SUCCESS" ? "ok" : "warn"}`}>{p.status === "REFUNDED" ? "Reversed / refunded" : p.status}</span>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}{p.status === "SUCCESS" && hasPerm("payment:update") && <button className="small" onClick={() => { setReversing(p); setReverseReason(""); reverse.reset(); }}>Reverse</button>}</td>
             </tr>
           ))}
           {list.data && list.data.items.length === 0 && (
@@ -169,6 +175,13 @@ export function PaymentsPage() {
         </div>
       )}
 
+      {reversing && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="reverse-payment-title">
+        <h3 id="reverse-payment-title">Reverse receipt {reversing.receipt?.receiptNumber}</h3>
+        <p>This corrects the original entry: cash {inr(reversing.amount)}, TDS {inr(reversing.tdsAmount)}. Invoice balances will reopen, and ledger/daybook reversals use the original payment date. Saved daybook closings may need review. This does not send money to the customer.</p>
+        <label>Reason (required)</label><textarea value={reverseReason} maxLength={500} onChange={e => setReverseReason(e.target.value)} />
+        {reverse.isError && <div className="error">{errMessage(reverse.error)}</div>}
+        <div className="actions"><button disabled={reverse.isPending} onClick={() => setReversing(null)}>Keep receipt</button><button disabled={reverse.isPending || reverseReason.trim().length < 10} onClick={() => reverse.mutate()}>Confirm reversal</button></div>
+      </div></div>}
       {creating && (
         <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="payment-entry-title" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>

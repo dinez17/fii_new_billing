@@ -23,7 +23,7 @@ case "$DUMP" in
     ;;
 esac
 
-echo "⚠  This will DROP and recreate objects in: $DATABASE_URL"
+echo "This will DROP and recreate objects in the explicitly configured target database."
 read -r -p "Type 'restore' to continue: " confirm
 [ "$confirm" = "restore" ] || { echo "aborted"; exit 1; }
 

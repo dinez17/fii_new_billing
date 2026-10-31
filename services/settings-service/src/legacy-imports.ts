@@ -1,3 +1,4 @@
+import { legacySalesBody, previewLegacySales, postLegacySales } from "./legacy-posting.js";
 import { Router } from "express";
 import { z } from "zod";
 import { authenticate, authorize } from "@fii/auth";
@@ -72,4 +73,33 @@ legacyImportsRouter.get("/records/:id", h(async (req, res) => {
   const row = await prisma.legacyRecord.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId } });
   if (!row) throw notFound("Legacy record");
   res.json(row);
+}));
+
+legacyImportsRouter.post("/records/:id/financial-preview", authorize("backup:update"), authorize("invoice:create"), authorize("payment:create"), h(async (req,res) => {
+  const body = legacySalesBody.safeParse(req.body);
+  if (!body.success) throw badRequest("Complete and verify the corrected invoice and receipt fields", body.error.flatten());
+  res.json(await previewLegacySales(req.auth!.tenantId, req.params.id, body.data));
+}));
+legacyImportsRouter.post("/records/:id/financial-post", authorize("backup:update"), authorize("invoice:create"), authorize("payment:create"), h(async (req,res) => {
+  const body = z.object({ document: legacySalesBody, token: z.string().regex(/^[a-f0-9]{64}$/), backupReference: z.string().trim().min(10).max(200), confirm: z.literal(true) }).safeParse(req.body);
+  if (!body.success) throw badRequest("Preview the document, record a recent backup reference and confirm posting");
+  res.json(await postLegacySales(req.auth!.tenantId, req.auth!.sub, req.params.id, body.data.document, body.data.token, body.data.backupReference));
+}));
+legacyImportsRouter.get("/records/:id/reconciliation-draft", h(async (req,res) => {
+  const tenantId = req.auth!.tenantId;
+  const record = await prisma.legacyRecord.findFirst({ where: { tenantId, id: req.params.id, sourceTable: "user_bills", status: "REVIEW" } });
+  if (!record) throw notFound("Held sales invoice");
+  const data = record.data as Record<string,unknown>;
+  const mapping = await prisma.legacyRecord.findFirst({ where: { tenantId, sourceHash: record.sourceHash, sourceTable: "user_cust_vendor_details", sourceId: String(data.billto) } });
+  const lines = await prisma.legacyRecord.findMany({ where: { tenantId, sourceHash: record.sourceHash, sourceTable: "user_bill_details", data: { path: ["billid"], equals: record.sourceId } } });
+  const receipts = await prisma.legacyRecord.findMany({ where: { tenantId, sourceHash: record.sourceHash, sourceTable: "user_receipt", data: { path: ["receipt_bill_id"], equals: record.sourceId } } });
+  const customer = mapping?.targetId ? await prisma.customer.findFirst({ where: { tenantId, id: mapping.targetId } }) : null;
+  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const n = (value: unknown) => Number(value ?? 0);
+  res.json({ customerName: customer?.name ?? "Unmapped customer", sourceTotal: data.billtotamt,
+    document: { customerId: customer?.id ?? "", invoiceNumber: String(data.billno ?? ""), invoiceDate: data.billdate, dueDate: data.duedate,
+      chargeGst: n(data.billtaxamt) > 0, isInterState: customer?.stateCode !== tenant.stateCode, expectedTotal: n(data.billtotamt), expectedBalance: n(data.billremainamt), note: "",
+      items: lines.map(row => { const l = row.data as Record<string,unknown>; return { description: [l.product_name,l.product_desc].filter(Boolean).join(" - "), hsnSac: String(l.hsn ?? ""), quantity: n(l.qty), unitPrice: n(l.rate), discount: 0, gstRate: Math.max(n(l.cgstp)+n(l.sgstp), n(l.igstp)) }; }),
+      receipts: receipts.map(row => { const r = row.data as Record<string,unknown>; return { sourceRecordId: row.id, receiptNumber: String(r.user_receipt_no ?? ""), paymentDate: r.user_receipt_date,
+        amount: n(r.user_payment_amount), tdsAmount: 0, mode: ({ cash: "CASH", cheque: "CHEQUE", online_transfer: "BANK_TRANSFER", bank_transfer: "BANK_TRANSFER" } as Record<string,string>)[String(r.user_payment_type)] ?? "REVIEW_REQUIRED", reference: String(r.user_receipt_no ?? ""), sourceType: r.user_payment_type }; }) } });
 }));

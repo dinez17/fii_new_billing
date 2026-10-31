@@ -9,30 +9,33 @@ import { NonGstCompanyTab } from "./NonGstCompanyTab";
 import { InvoiceTemplatesTab } from "./InvoiceTemplatesTab";
 import { LicenseTab } from "./LicenseTab";
 import { LegacyImportTab } from "./LegacyImportTab";
+import { FinancialControlsPage } from "../accounting/FinancialControlsPage";
 import { isPlatformConsole } from "../../lib/console";
 
-type Tab = "nonGst" | "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
+type Tab = "accounts" | "nonGst" | "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
 
 const TAB_LABELS: Record<Tab, string> = {
   nonGst: "Without-GST company", invoice: "Invoice format", company: "Company profile", fy: "Financial years", series: "Number series",
-  license: "License",
+  accounts: "Cash / bank accounts", license: "License",
   legacy: "Legacy import",
   terms: "Terms & Conditions", inventory: "Inventory", gateway: "Payment gateway", smtp: "Email (SMTP)", security: "My security",
 };
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>("company");
+  const canReadAccounts = useAuth((state) => state.hasPerm("report:read"));
   const canReadLegacy = useAuth((state) => state.hasPerm("backup:read"));
   return (
     <>
       <h2 className="page-title">Settings</h2>
       <div className="toolbar">
-        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "accounts" || (!isPlatformConsole && canReadAccounts)) && (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
           <button key={t} className={tab === t ? "primary" : ""} onClick={() => setTab(t)}>
             {TAB_LABELS[t]}
           </button>
         ))}
       </div>
+      {tab === "accounts" && canReadAccounts && !isPlatformConsole && <FinancialControlsPage />}
       {tab === "company" && <CompanyTab />}
       {tab === "invoice" && <InvoiceTemplatesTab />}
       {tab === "nonGst" && !isPlatformConsole && <NonGstCompanyTab />}

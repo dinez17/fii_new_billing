@@ -89,6 +89,7 @@ const ROUTES: Record<string, string> = {
   "/api/v1/attendance": process.env.HR_SERVICE_URL ?? "http://localhost:8089",
   "/api/v1/leaves": process.env.HR_SERVICE_URL ?? "http://localhost:8089",
   "/api/v1/payroll": process.env.HR_SERVICE_URL ?? "http://localhost:8089",
+  "/api/v1/financial-controls": process.env.ACCOUNTING_SERVICE_URL ?? "http://localhost:8092",
   "/api/v1/day-book": process.env.ACCOUNTING_SERVICE_URL ?? "http://localhost:8092",
   "/api/v1/ledger": process.env.ACCOUNTING_SERVICE_URL ?? "http://localhost:8092",
   "/api/v1/reports": process.env.ACCOUNTING_SERVICE_URL ?? "http://localhost:8092",

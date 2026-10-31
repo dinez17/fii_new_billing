@@ -1,4 +1,5 @@
-import nodemailer, { type Transporter } from "nodemailer";
+import nodemailer, { type Transporter, type SendMailOptions } from "nodemailer";
+import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
 import { prisma } from "@fii/database";
 import { createLogger, decryptSecret } from "@fii/common";
 
@@ -22,15 +23,17 @@ const transports = new Map<string, Transporter>();
 async function getTransport(tenantId: string): Promise<{ t: Transporter; from: string } | null> {
   const cfg = await groupSettings(tenantId, "SMTP");
   if (cfg.enabled !== "true" || !cfg.host) return null;
-  const key = `${tenantId}:${cfg.host}:${cfg.user}`;
+  const key = JSON.stringify([tenantId, cfg.host, cfg.port, cfg.user, cfg.password]);
   let t = transports.get(key);
   if (!t) {
     t = nodemailer.createTransport({
       host: cfg.host,
       port: Number(cfg.port ?? 587),
       secure: Number(cfg.port) === 465,
+      connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000,
       auth: cfg.user ? { user: cfg.user, pass: cfg.password } : undefined,
     });
+    for (const old of transports.keys()) if (JSON.parse(old)[0] === tenantId) { transports.get(old)?.close(); transports.delete(old); }
     transports.set(key, t);
   }
   const from = cfg.fromName ? `"${cfg.fromName}" <${cfg.fromEmail ?? cfg.user}>` : (cfg.fromEmail ?? cfg.user);
@@ -80,44 +83,63 @@ export async function dispatch(req: SendRequest): Promise<void> {
         subject,
         body,
         status: "QUEUED",
+        nextAttemptAt: new Date(),
         refType: req.refType,
         refId: req.refId,
       },
     });
 
-    try {
-      if (tpl.channel === "EMAIL") {
-        const smtp = await getTransport(req.tenantId);
-        if (!smtp) throw new Error("SMTP not configured/enabled");
-        await smtp.t.sendMail({
-          from: smtp.from,
-          to,
-          subject: subject ?? req.templateCode,
-          html: body.replace(/\n/g, "<br/>"),
-          attachments: req.attachments?.map((a) => ({ ...a, contentType: "application/pdf" })),
-        });
-      } else {
-        // SMS / WhatsApp: providers plug in here. CONSOLE provider = dev mode.
-        const group = tpl.channel === "SMS" ? "SMS" : "WHATSAPP";
-        const cfg = await groupSettings(req.tenantId, group);
-        if (cfg.enabled !== "true") throw new Error(`${group} not enabled`);
-        if ((cfg.provider ?? "CONSOLE").toUpperCase() === "CONSOLE") {
-          log.info({ channel: tpl.channel, to, body }, "CONSOLE provider — message logged only");
-        } else {
-          throw new Error(`${group} provider "${cfg.provider}" not implemented yet`);
-        }
-      }
-      await prisma.notificationLog.update({
-        where: { id: logRow.id },
-        data: { status: "SENT", sentAt: new Date(), attempts: { increment: 1 } },
-      });
-    } catch (err) {
-      await prisma.notificationLog.update({
-        where: { id: logRow.id },
-        data: { status: "FAILED", error: String(err).slice(0, 500), attempts: { increment: 1 } },
-      });
-      log.warn({ channel: tpl.channel, to, err: String(err) }, "send failed");
-      // do NOT rethrow — one failed channel shouldn't re-deliver the whole event
-    }
+    await deliverNotification(logRow.id, req.attachments);
   }
+}
+
+/** Lease each channel separately; a failed channel never resends another channel. */
+export async function deliverNotification(id: string, suppliedAttachments?: SendRequest["attachments"], sender?: (mail: SendMailOptions) => Promise<unknown>) {
+  const now = new Date();
+  const claimed = await prisma.notificationLog.updateMany({ where: { id, status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 },
+    AND: [{ OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] }, { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }] },
+    data: { lockedUntil: new Date(now.getTime() + 120000), attempts: { increment: 1 } } });
+  if (!claimed.count) return;
+  const row = await prisma.notificationLog.findUniqueOrThrow({ where: { id } });
+  try {
+    if (row.channel !== "EMAIL") throw new Error(`${row.channel} delivery provider is not configured; no message was delivered`);
+    let attachments = suppliedAttachments;
+    if (row.refType === "INVOICE" && row.refId) {
+      const invoice = await prisma.invoice.findFirst({ where: { id: row.refId, tenantId: row.tenantId, status: { notIn: ["CANCELLED", "DRAFT"] } } });
+      if (!invoice) throw new Error("Invoice cancelled or unavailable; message not sent");
+      if (!attachments?.length) {
+        const pdf = await buildInvoicePdfBuffer(row.tenantId, row.refId);
+        attachments = [{ filename: `${invoice.invoiceNumber.replaceAll("/", "-")}.pdf`, content: pdf.buffer }];
+      }
+    }
+    if (row.refType === "PAYMENT" && row.refId) {
+      const payment = await prisma.payment.findFirst({ where: { id: row.refId, tenantId: row.tenantId, status: "SUCCESS" }, include: { receipt: true } });
+      if (!payment?.receipt) throw new Error("Receipt reversed or unavailable; message not sent");
+      if (!attachments?.length) {
+        const pdf = await buildReceiptPdfBuffer(row.tenantId, payment.receipt.id);
+        attachments = [{ filename: `${payment.receipt.receiptNumber.replaceAll("/", "-")}.pdf`, content: pdf.buffer }];
+      }
+    }
+    const smtp = sender ? { from: "test@example.test", t: { sendMail: sender } } : await getTransport(row.tenantId);
+    if (!smtp) throw new Error("SMTP not configured/enabled");
+    const body = (row.body ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br/>");
+    await smtp.t.sendMail({ from: smtp.from, to: row.to, subject: row.subject ?? row.templateCode ?? "Notification",
+      messageId: `<${row.id}@notifications.fii-vaniga.local>`, html: body,
+      attachments: attachments?.map(a => ({ ...a, contentType: "application/pdf" })) });
+    await prisma.notificationLog.update({ where: { id }, data: { status: "SENT", sentAt: new Date(), error: null, lockedUntil: null, nextAttemptAt: null } });
+  } catch (error) {
+    await prisma.notificationLog.update({ where: { id }, data: { status: "FAILED", error: String(error).slice(0,500), lockedUntil: null,
+      nextAttemptAt: row.attempts < 5 ? new Date(Date.now() + 60000 * 2 ** (row.attempts - 1)) : null } });
+    log.warn({ id, attempt: row.attempts }, "Notification failed; see tenant send log");
+  }
+}
+
+export async function retryNotifications(sender?: (mail: SendMailOptions) => Promise<unknown>) {
+  const now = new Date();
+  await prisma.notificationLog.updateMany({ where: { channel: "EMAIL", status: "QUEUED", attempts: { gte: 5 }, lockedUntil: { lt: now } },
+    data: { status: "FAILED", lockedUntil: null, nextAttemptAt: null, error: "Final delivery attempt was interrupted; verify provider delivery before manually retrying" } });
+  const rows = await prisma.notificationLog.findMany({ where: { channel: "EMAIL", attempts: { lt: 5 },
+    OR: [{ status: "QUEUED", nextAttemptAt: { lte: now } }, { status: "FAILED", nextAttemptAt: { lte: now } }],
+    AND: [{ OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] }] }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true } });
+  for (const row of rows) await deliverNotification(row.id, undefined, sender);
 }

@@ -1,0 +1,71 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prisma, postCustomerPayment } from "@fii/database";
+import { previewBilling } from "../src/services/billing-preview.js";
+import { createInvoice } from "../src/services/invoice.service.js";
+import { createPayment, paymentCreateBody, reversePayment, saveTdsReview, tdsDetails } from "../../payment-service/src/services/payment.service.js";
+import { processRun } from "../../../workers/billing-worker/src/generate.js";
+const suite = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
+suite("billing preview, period protection and receipt reversals", () => {
+  let tenantId = "", customerId = "", subId = "", actorId = "";
+  const date = new Date("2027-01-01"), end = new Date("2027-03-31");
+  const line = { description: "Initial service", quantity: 1, unitPrice: 100, discount: 0, gstRate: 0 };
+  beforeAll(async () => {
+    tenantId = (await prisma.tenant.create({ data: { name: "Controls test", subdomain: `controls-${Date.now()}`, stateCode: "33" } })).id;
+    actorId = (await prisma.user.create({ data: { tenantId, name: "Tester", email: "controls@example.test", passwordHash: "not-a-login" } })).id;
+    customerId = (await prisma.customer.create({ data: { tenantId, code: "C1", name: "Customer", stateCode: "33" } })).id;
+    subId = (await prisma.subscriber.create({ data: { tenantId, customerId, code: "S1", activationDate: new Date("2026-11-05"), billingCycleMonths: 3, subscriberType: "PREPAID", chargeGst: false } })).id;
+    const plan = await prisma.plan.create({ data: { tenantId, code: "P1", name: "Service", price: 100, gstRate: 18 } });
+    await prisma.subscriberPlan.create({ data: { tenantId, subscriberId: subId, planId: plan.id, startDate: new Date("2026-11-05") } });
+    await prisma.financialYear.create({ data: { tenantId, code: "2026-27", startDate: new Date("2026-04-01"), endDate: new Date("2027-03-31T23:59:59.999Z"), isActive: true } });
+  });
+  afterAll(async () => {
+    const where = { tenantId };
+    await prisma.billingRunItem.deleteMany({ where: { billingRun: where } }); await prisma.billingRun.deleteMany({ where });
+    await prisma.auditLog.deleteMany({ where }); await prisma.setting.deleteMany({ where }); await prisma.outboxEvent.deleteMany({ where });
+    await prisma.dayBookEntry.deleteMany({ where }); await prisma.ledgerEntry.deleteMany({ where });
+    await prisma.receipt.deleteMany({ where }); await prisma.paymentAllocation.deleteMany({ where: { payment: where } }); await prisma.payment.deleteMany({ where });
+    await prisma.invoiceItem.deleteMany({ where: { invoice: where } }); await prisma.invoice.deleteMany({ where });
+    await prisma.subscriberPlan.deleteMany({ where }); await prisma.subscriber.deleteMany({ where }); await prisma.plan.deleteMany({ where });
+    await prisma.numberSeries.deleteMany({ where }); await prisma.financialYear.deleteMany({ where }); await prisma.customer.deleteMany({ where }); await prisma.user.deleteMany({ where }); await prisma.tenant.delete({ where: { id: tenantId } });
+    await prisma.$disconnect();
+  });
+  it("previews full fiscal quarter without writing financial data and skips the partial first quarter", async () => {
+    const q = { year: 2027, month: 1, cycleType: "PREPAID" as const, taxMode: "WITHOUT_GST" as const, page: 1, limit: 20 };
+    const preview = await previewBilling(tenantId, q);
+    expect(preview.items[0]).toMatchObject({ eligible: true, amount: "300.00", periodStart: date, periodEnd: end });
+    expect(await prisma.invoice.count({ where: { tenantId } })).toBe(0);
+    const partial = await previewBilling(tenantId, { ...q, year: 2026, month: 10 });
+    expect(partial.items[0]!.eligible).toBe(false);
+  });
+  it("blocks automatic overlap with manual invoices and serializes concurrent manual creation", async () => {
+    const body = { customerId, subscriberId: subId, invoiceDate: date, dueDate: date, periodStart: date, periodEnd: end, items: [line] };
+    const results = await Promise.allSettled([createInvoice(tenantId, actorId, body), createInvoice(tenantId, actorId, body)]);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    await processRun({ tenantId, cycleType: "PREPAID", taxMode: "WITHOUT_GST", periodStart: date, periodEnd: new Date("2027-01-31") });
+    expect(await prisma.invoice.count({ where: { tenantId } })).toBe(1);
+    const run = await prisma.billingRun.findFirstOrThrow({ where: { tenantId } });
+    expect(run.failedCount).toBe(1);
+    const preview = await previewBilling(tenantId, { year: 2027, month: 1, cycleType: "PREPAID", taxMode: "ALL", page: 1, limit: 20 });
+    expect(preview.items[0]!.reason).toContain("Already covered");
+  });
+  it("reverses cash and TDS exactly once, including a pending ledger posting", async () => {
+    const inv = await prisma.invoice.findFirstOrThrow({ where: { tenantId } });
+    const p = await createPayment(tenantId, null, paymentCreateBody.parse({ customerId, paymentDate: date, amount: 90, tdsAmount: 10, mode: "CASH", allocations: [{ invoiceId: inv.id, amount: 90, tdsAmount: 10 }] }));
+    await expect(saveTdsReview(tenantId, actorId, p.id, { verifiedAmount: 11, certificateReference: "CERT-1", confirmedDate: date, note: "Verified certificate reference" })).rejects.toThrow("cannot exceed");
+    await saveTdsReview(tenantId, actorId, p.id, { verifiedAmount: 10, certificateReference: "CERT-1", confirmedDate: date, note: "Verified certificate reference", certificateBase64: Buffer.from("%PDF-1.4 test evidence").toString("base64") });
+    const evidence = await prisma.setting.findFirstOrThrow({ where: { tenantId, group: "TDS_RECONCILIATION", key: p.id } });
+    expect(evidence.isSecret).toBe(true); expect(evidence.value).not.toContain("CERT-1");
+    const details = await tdsDetails(tenantId,"2026-27",customerId); expect(details[0]!.review.verifiedAmount).toBe("10.00");
+    await reversePayment(tenantId, actorId, p.id, "Wrong receipt entered for customer");
+    const updated = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
+    expect(Number(updated.amountPaid)).toBe(0); expect(updated.status).toBe("UNPAID");
+    const ledger = await prisma.ledgerEntry.aggregate({ where: { tenantId, refId: p.id }, _sum: { debit: true, credit: true } });
+    expect(Number(ledger._sum.debit) - Number(ledger._sum.credit)).toBe(0);
+    const movements = await prisma.dayBookEntry.findMany({ where: { tenantId, refId: p.id } });
+    expect(movements).toHaveLength(2); expect(movements.every(m => Number(m.amount) === 90)).toBe(true);
+    await prisma.$transaction(tx => postCustomerPayment(tx, { tenantId, customerId, paymentId: p.id, fyCode: "2026-27", entryDate: date, amount: "90", tdsAmount: "10", mode: "CASH", receiptNumber: p.receipt.receiptNumber }));
+    expect(await prisma.ledgerEntry.count({ where: { tenantId, refId: p.id } })).toBe(2);
+    await expect(reversePayment(tenantId, actorId, p.id, "Repeat reversal request")).rejects.toThrow("Only successful");
+    await expect(reversePayment("another-tenant", actorId, p.id, "Wrong tenant request")).rejects.toThrow("not found");
+  });
+});

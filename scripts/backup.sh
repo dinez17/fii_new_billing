@@ -6,7 +6,11 @@ set -euo pipefail
 : "${DATABASE_URL:?set DATABASE_URL (postgres://user:pass@host:port/db)}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="${BACKUP_DIR:-backups}/${STAMP}"
+umask 077
 mkdir -p "$OUT"
+if [ "${BACKUP_REQUIRE_OFFSITE:-false}" = "true" ] && { [ -z "${BACKUP_S3_URI:-}" ] || [ -z "${BACKUP_AGE_RECIPIENT:-}" ]; }; then
+  echo "Encrypted off-site backup configuration is required"; exit 1
+fi
 
 echo "→ pg_dump → $OUT/db.dump"
 pg_dump --format=custom --no-owner --no-privileges --file "$OUT/db.dump" "$DATABASE_URL"
@@ -15,10 +19,12 @@ pg_dump --format=custom --no-owner --no-privileges --file "$OUT/db.dump" "$DATAB
 if command -v mc >/dev/null 2>&1; then
   BUCKET="${MINIO_BUCKET:-fii-billing}"
   echo "→ mc mirror local/$BUCKET → $OUT/objects"
-  mc mirror --overwrite "local/${BUCKET}" "$OUT/objects" || echo "  (skipped: mc alias 'local' or bucket not found)"
+  mc mirror --overwrite "local/${BUCKET}" "$OUT/objects" || { echo "Object backup failed; backup is incomplete"; exit 1; }
+elif [ "${BACKUP_REQUIRE_OBJECTS:-false}" = "true" ]; then
+  echo "MinIO client is required for the configured object backup"; exit 1
 fi
 
-sha256sum "$OUT/db.dump" > "$OUT/SHA256SUMS"
+(cd "$OUT" && sha256sum db.dump > SHA256SUMS && { [ ! -d objects ] || find objects -type f -print0 | sort -z | xargs -0 -r sha256sum >> SHA256SUMS; })
 
 # Production backups must be encrypted before leaving the host. Set an age
 # recipient such as age1...; the matching private key stays offline.
@@ -41,7 +47,15 @@ fi
 
 # retention: keep the newest N daily backups
 KEEP="${BACKUP_KEEP:-14}"
-ls -1dt "${BACKUP_DIR:-backups}"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
+touch "$OUT/.complete"
+[[ "$KEEP" =~ ^[1-9][0-9]*$ ]] || { echo 'BACKUP_KEEP must be positive'; exit 1; }
+ROOT="$(realpath "${BACKUP_DIR:-backups}")"
+mapfile -d '' COMPLETE < <(find "$ROOT" -mindepth 2 -maxdepth 2 -type f -name .complete -printf '%h\0' | sort -zr)
+for (( index=KEEP; index<${#COMPLETE[@]}; index++ )); do
+  OLD="$(realpath "${COMPLETE[index]}")"
+  [[ "$OLD" == "$ROOT"/* ]] || { echo 'Retention path escaped backup root'; exit 1; }
+  rm -rf -- "$OLD"
+done
 
 echo "✓ backup complete: $OUT"
 du -sh "$OUT"
