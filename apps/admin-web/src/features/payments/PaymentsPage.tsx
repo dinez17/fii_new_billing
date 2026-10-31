@@ -1,3 +1,4 @@
+import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { TdsReport } from "./TdsReport";
 import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
@@ -44,7 +45,7 @@ export function PaymentsPage() {
     tdsAmount: "",
     tdsSection: "",
     tdsAllocations: {} as Record<string, string>,
-    mode: "CASH",
+    mode: "CASH", financialAccountId: "",
     paymentDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
     reference: "",
     allocations: {} as Record<string, string>, // invoiceId → amount
@@ -99,6 +100,7 @@ export function PaymentsPage() {
         amount,
         tdsAmount: tds,
         tdsSection: tds > 0 ? form.tdsSection || undefined : undefined,
+        financialAccountId: form.financialAccountId || null,
         mode: form.mode,
         paymentDate: form.paymentDate,
         reference: form.reference || undefined,
@@ -208,6 +210,7 @@ export function PaymentsPage() {
               </div>
               <div><label>Date</label>
                 <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} /></div>
+              <MoneyAccountSelect value={form.financialAccountId} onChange={id=>setForm({...form,financialAccountId:id})} />
               <div><label>Reference {amount > 0 && (form.mode === "CHEQUE" || form.mode === "BANK_TRANSFER") && "*"}</label>
                 <input placeholder="Cheque no / UTR" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
             </div>

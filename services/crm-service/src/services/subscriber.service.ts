@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, prisma } from "@fii/database";
+import { Prisma, plannedSubscriberStatus, allocateNumber, prisma } from "@fii/database";
 import { badRequest, notFound, billingCycleSpan } from "@fii/common";
 import type { z } from "zod";
 import type { subscriberCreateBody, subscriberListQuery } from "../validators.js";
@@ -31,6 +31,7 @@ export async function listSubscribers(tenantId: string, q: ListQuery) {
       orderBy: { createdAt: "desc" },
       include: {
         customer: { select: { id: true, name: true, phone: true, isActive: true } },
+        schedules:{where:{status:{in:["PENDING","APPLIED"]}}},
         plans: { where: { endDate: null }, include: { plan: true } },
       },
     }),
@@ -47,6 +48,7 @@ export async function listSubscribers(tenantId: string, q: ListQuery) {
       const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
       const span = billingCycleSpan(sub.subscriberType, serviceStart, sub.billingCycleMonths, start, end);
       if (!span || span.spanEnd < today) continue;
+      if(plannedSubscriberStatus(sub.status,sub.schedules,span.spanStart)!=="ACTIVE"||sub.schedules.some(s=>["PAUSE","TERMINATE"].includes(s.action)&&s.effectiveDate>=span.spanStart&&s.effectiveDate<=span.spanEnd))continue;
       if (sub.plans.some(p => p.startDate <= span.spanEnd && p.startDate > span.spanStart && sub.billingCycleMonths > 1)) continue;
       if (invoices.some(i => i.subscriberId === sub.id && i.periodStart && i.periodEnd && ((i.status !== "CANCELLED" && i.periodStart <= span.spanEnd && i.periodEnd >= span.spanStart) || (i.invoiceType === "SUBSCRIPTION" && i.periodStart.getTime() === span.spanStart.getTime())))) continue;
       nextBilling = { invoiceDate: sub.subscriberType === "PREPAID" ? span.spanStart : span.spanEnd, periodStart: span.spanStart, periodEnd: span.spanEnd };

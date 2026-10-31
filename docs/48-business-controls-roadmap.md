@@ -32,38 +32,45 @@
 - Backup hardening: relative checksums, private permissions, required-object and
   required-encrypted-offsite flags; isolated Docker restore-drill utility.
 
-## Remaining implementation / operations
-- Reconciled held purchase posting and richer correction workflows for write-offs.
-- Automatic source-document posting into the new general journal. The trial
-  balance clearly covers explicit journals only; operational reports are retained.
-- Named money-account assignment on every operational money entry and automatic
-  synchronization. Existing daybook remains combined cash/bank, not fabricated
-  account-wise history. Bank statement CSV mapping/import UI (API accepts batches).
-- TDS tax-liability/refund clearing and verified accounting allocations.
-- Scheduled pause/resume/termination dates and billing-impact preview for plan
-  changes (existing immediate lifecycle actions remain available).
-- Configure encrypted off-server backup destination/keys and notification alerts;
-  run full production database/object/key/application restore drill with evidence.
-- Broader browser coverage for portal, tenant isolation and quotation conversions.
+## Completion update — 31 October 2026
 
-## Validation and deployment
-Validation completed on 31 October 2026:
-- Lint and all workspace type checks passed.
-- 96 unit tests and 115 integration tests passed; the ten affected integration
-  tests were rerun after the final corrections, followed by the journal constraint
-  checks after migration 23.
-- Production builds passed; the final tenant-web build also passed.
-- Nine mocked-API browser checks passed at mobile and desktop widths, including
-  unauthenticated routing, billing-preview invalidation, receipt reversal,
-  balanced-journal entry and bank-match selection.
-- A test-database dump was restored into a network-isolated disposable Docker
-  container; checksum/count/time evidence is in ignored local output. This is not
-  evidence of a complete production/object/key recovery drill.
-- Backup and recovery Bash syntax checks passed.
+All remaining implementation items have now been added locally:
+- Automatic, idempotent source journals for sales, notes, receipts, purchases,
+  supplier payments, purchase returns, expenses/payroll, write-offs and manual cash.
+  Corrections retain the original journal and post a balanced reversal.
+- Named cash/bank selection on receipt, supplier payment, expense, salary and
+  manual daybook entry; reviewed assignment of old money entries. Non-cash entries
+  without a known account remain explicitly unassigned.
+- Bank CSV upload with delimiter/date/column mapping, preview and duplicate handling.
+- Reviewed held-purchase posting with own supplier/product mapping, linked actual
+  supplier receipts, and explicit locked-history correction permission. Sales
+  corrections can classify a verified write-off without inventing cash or TDS.
+- Receivable write-off and reversal history. GST and original sales remain intact.
+- Verified TDS application against recorded income-tax liability, or actual refund
+  to a selected bank; reversal history, verified-credit limits and cash-only refunds.
+- Controlled year-end preview, reconciliation blockers, income/expense closing,
+  retained earnings, calculated next-year openings and audited reopen/reversal.
+  Existing profit-reset settings are preserved; opening journals are not duplicated.
+- Scheduled pause/resume/termination, due-action processing and future-period
+  eligibility checks. Plan edits show old/new cycle prices before confirmation;
+  mid-period changes require reviewed manual proration.
+- Browser coverage extended to CSV, quotation conversion, portal sign-in and denied
+  tenant-source access. Actual tenant boundaries are separately tested in PostgreSQL.
 
-The user explicitly deferred off-server backup storage configuration and selected
-email-only delivery. Bank names/opening balances will be entered by the user.
- No production release or live
-financial posting has been performed for this work. New migrations are additive;
-existing tenant backups require their matching schema version. Never infer bank
-opening balances, repost historical receipts or reset profit basis during deploy.
+See [49-accounting-completion.md](49-accounting-completion.md) for setup and use.
+
+## Deferred by the user
+Recovery and monitoring configuration is explicitly excluded from this completion:
+encrypted off-server destination/keys, failure alerts and the complete production
+restore drill covering objects, keys, login and PDFs. Existing recovery utilities
+are retained. SMS/WhatsApp remain out of scope (email only).
+
+## Validation and release state
+- 98 unit tests and 124 PostgreSQL integration tests passed.
+- Lint, workspace type checks and production builds passed.
+- 16 browser checks passed using built applications with mocked API responses at mobile and
+  desktop widths; these use mocked APIs and do not claim production authentication or delivery testing.
+- Additive migrations 24 and 25 were applied only to the disposable test database.
+- No production release, live historical posting, bank allocation or profit reset
+  was performed by this completion task. Deployment and user financial review are
+  still required. Bank names/opening balances must be entered by the user.

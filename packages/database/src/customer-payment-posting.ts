@@ -19,7 +19,7 @@ export async function postCustomerPayment(tx: Prisma.TransactionClient, input: C
   } });
   if (cash.gt(0)) await tx.dayBookEntry.create({ data: {
     tenantId: input.tenantId, fyCode: input.fyCode, entryDate: input.entryDate, type: "CASH_IN", source: "INVOICE_PAYMENT",
-    mode: input.mode, amount: cash, refType: "PAYMENT", refId: input.paymentId,
+    mode: input.mode, financialAccountId: payment.financialAccountId, amount: cash, refType: "PAYMENT", refId: input.paymentId,
     narration: `Receipt ${input.receiptNumber} — actual money received`, createdById: input.actorId ?? undefined,
   } });
 }

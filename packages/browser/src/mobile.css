@@ -58,17 +58,29 @@
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 
-/* Full-page master and transaction entry forms on desktop and mobile. */
-.modal-overlay.entry-fullpage-overlay { padding: 0; place-items: stretch; background: var(--card); backdrop-filter: none; }
+/* Compact, centered entry dialogs with scrolling for longer forms. */
+.modal-overlay.entry-fullpage-overlay {
+  padding: 20px; place-items: center; background: rgb(15 23 42 / .45); backdrop-filter: blur(3px);
+}
 .entry-fullpage-overlay > .modal,
 .entry-fullpage-overlay > .modal[style] {
-  width: 100% !important; max-width: none !important; height: 100dvh; max-height: 100dvh !important;
-  margin: 0; padding: 24px clamp(16px,3vw,48px); border: 0; border-radius: 0; box-shadow: none;
+  width: 640px; max-width: min(960px, calc(100vw - 40px)) !important;
+  height: auto; max-height: 84dvh !important; margin: 0; padding: 20px;
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-lg);
   overflow-y: auto; overscroll-behavior: contain;
 }
-.entry-fullpage-overlay > .modal > h3:first-child { margin-top: 0; padding: 8px 0 16px; border-bottom: 1px solid var(--border); font-size: 21px; }
-.entry-fullpage-overlay > .modal > .actions { position: sticky; bottom: -24px; background: var(--card); padding: 16px 0; border-top: 1px solid var(--border); z-index: 2; }
+.entry-fullpage-overlay > .modal > h3:first-child {
+  margin-top: 0; padding: 0 0 12px; border-bottom: 1px solid var(--border); font-size: 18px;
+}
+.entry-fullpage-overlay > .modal > .actions {
+  position: sticky; bottom: -20px; background: var(--card); padding: 12px 0;
+  border-top: 1px solid var(--border); z-index: 2;
+}
 @media(max-width:600px) {
- .entry-fullpage-overlay > .modal, .entry-fullpage-overlay > .modal[style] { padding: 16px; }
+ .modal-overlay.entry-fullpage-overlay { padding: 12px; }
+ .entry-fullpage-overlay > .modal, .entry-fullpage-overlay > .modal[style] {
+   width: 100% !important; max-width: calc(100vw - 24px) !important;
+   max-height: calc(100dvh - 24px) !important; padding: 16px; border-radius: 14px;
+ }
  .entry-fullpage-overlay > .modal > .actions { bottom: -16px; }
 }

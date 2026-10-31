@@ -1,3 +1,4 @@
+import { journalForEvent, type Prisma } from "@fii/database";
 import { prisma } from "@fii/database";
 import { createLogger } from "@fii/common";
 import { getProducer } from "./producer.js";
@@ -90,6 +91,7 @@ export async function writeOutbox(
   topic: string,
   payload: object,
 ): Promise<void> {
+  if ("financialAccount" in tx) await journalForEvent(tx as unknown as Prisma.TransactionClient, tenantId, topic, payload);
   await tx.outboxEvent.create({
     data: { tenantId, topic, eventKey: tenantId, payload },
   });

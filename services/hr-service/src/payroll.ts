@@ -3,7 +3,7 @@ import type { Request, RequestHandler, Response } from "express";
 import { z, type ZodTypeAny } from "zod";
 import { badRequest, notFound } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { Prisma, prisma } from "@fii/database";
+import { moneyAccount, syncSourceJournal, Prisma, prisma } from "@fii/database";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import { streamPayslipPdf, payslipFileName } from "@fii/pdf";
 
@@ -24,6 +24,7 @@ const genBody = z.object({
 });
 
 const markPaidBody = z.object({
+  financialAccountId: z.string().uuid().nullable().optional(),
   mode: z.enum(["CASH", "CHEQUE", "BANK_TRANSFER", "UPI"]).default("BANK_TRANSFER"),
 });
 
@@ -192,9 +193,16 @@ payrollRouter.post("/payslips/:id/mark-paid", authorize("payroll:update"), h(asy
     .toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
 
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Payslip" WHERE "tenantId"=${tenantId} AND id=${slip.id} FOR UPDATE`;
+    if((await tx.payslip.findFirstOrThrow({where:{tenantId,id:slip.id}})).status==="PAID")throw badRequest("Already paid");
+    const paidAt=new Date(), paidDay=new Date(paidAt.toISOString().slice(0,10));
+    await tx.$queryRaw`SELECT id FROM "FinancialYear" WHERE "tenantId"=${tenantId} AND "startDate"<=${paidDay} AND "endDate">=${paidDay} FOR SHARE`;
+    const paymentYear=await tx.financialYear.findFirst({where:{tenantId,startDate:{lte:paidDay},endDate:{gte:paidDay},isActive:true,isLocked:false}});
+    if(!paymentYear)throw badRequest("Salary payment requires an active unlocked financial year for today");
+    const accountId = await moneyAccount(tx,tenantId,b.financialAccountId,b.mode);
     await tx.payslip.update({
       where: { id: slip.id },
-      data: { status: "PAID", paidAt: new Date(), paidMode: b.mode },
+      data: { status: "PAID", paidAt, paidMode: b.mode, financialAccountId: accountId },
     });
 
     // auto expense entry under "Salaries"
@@ -203,22 +211,23 @@ payrollRouter.post("/payslips/:id/mark-paid", authorize("payroll:update"), h(asy
       create: { tenantId, name: "Salaries" },
       update: {},
     });
-    await tx.expense.create({
+    const expense = await tx.expense.create({
       data: {
         tenantId,
-        fyCode: slip.payrollRun.fyCode,
-        categoryId: category.id,
-        expenseDate: new Date(),
+        fyCode: paymentYear.code,
+        categoryId: category.id, payslipId: slip.id,
+        expenseDate: paidAt,
         description: `Salary — ${slip.employee.name} (${slip.employee.code}) — ${monthName}`,
         amount: slip.netSalary,
         gstRate: new Prisma.Decimal(0),
         gstAmount: new Prisma.Decimal(0),
         total: slip.netSalary,
-        mode: b.mode,
+        mode: b.mode, financialAccountId: accountId,
         createdById: req.auth!.sub,
       },
     });
 
+    await syncSourceJournal(tx,tenantId,"EXPENSE",expense.id,req.auth!.sub);
     await writeOutbox(tx, tenantId, TOPICS.SALARY_PAID, makeEnvelope(tenantId, {
       payslipId: slip.id,
       employeeName: slip.employee.name,

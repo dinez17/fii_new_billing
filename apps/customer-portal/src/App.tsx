@@ -57,12 +57,12 @@ function Login() {
         <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
         <h1>{APP_NAME}</h1>
         <p><span className="brand-tagline">{APP_TAGLINE}</span>Customer portal · View invoices and pay online</p>
-        <label>Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
-        <label>Password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <label>Authenticator code (if enabled)</label>
-        <input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp}
+        <label htmlFor="portal-email">Email</label>
+        <input id="portal-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        <label htmlFor="portal-password">Password</label>
+        <input id="portal-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <label htmlFor="portal-otp">Authenticator code (if enabled)</label>
+        <input id="portal-otp" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp}
           onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} placeholder="123456" />
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ width: "100%", marginTop: 20 }} disabled={busy}>

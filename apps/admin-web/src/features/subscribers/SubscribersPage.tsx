@@ -1,3 +1,4 @@
+import {SubscriberSchedules} from "./SubscriberSchedules";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
@@ -55,8 +56,10 @@ export function SubscribersPage() {
   const [type, setType] = useState("");
   const [form, setForm] = useState<CreateForm | null>(null);
   const [manageFor, setManageFor] = useState<SubRow | null>(null);
+  const [serviceFor, setServiceFor] = useState<SubRow | null>(null);
   const [poDraft, setPoDraft] = useState("");
   const [addPlan, setAddPlan] = useState({ planId: "", startDate: new Date().toISOString().slice(0, 10), override: "", location: "" });
+  const [impact,setImpact]=useState<{mapping:Mapping;body:object;data:{oldCycle:number;newCycle:number;message:string}}|null>(null);
   const [connectionDrafts, setConnectionDrafts] = useState<Record<string, ConnectionDraft>>({});
   const [savingConnection, setSavingConnection] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -135,15 +138,18 @@ export function SubscribersPage() {
     const draft = connectionDrafts[mapping.id] ?? connectionDraft(mapping);
     setSavingConnection(mapping.id);
     try {
-      const { data } = await api.put(`/subscribers/${manageFor!.id}/plans/${mapping.id}`, { planId: draft.planId, location: draft.location, priceOverride: draft.price ? Number(draft.price) : null, startDate: draft.startDate });
-      setManageFor((current) => current ? { ...current, plans: current.plans.map((row) => row.id === mapping.id ? data as Mapping : row) } : current);
-      setConnectionDrafts((current) => { const next = { ...current }; delete next[mapping.id]; return next; });
+      const body={ planId: draft.planId, location: draft.location, priceOverride: draft.price ? Number(draft.price) : null, startDate: draft.startDate };
+      const response=await api.post(`/subscribers/${manageFor!.id}/plans/${mapping.id}/preview`,body);
+      setImpact({mapping,body,data:response.data});
+
+
       setError("");
       qc.invalidateQueries({ queryKey: ["subscribers"] });
     } catch (err) { setError(errMessage(err)); }
     finally { setSavingConnection(null); }
   }
 
+  async function confirmConnectionChange(){if(!impact||!manageFor)return;setSavingConnection(impact.mapping.id);try{const {data}=await api.put(`/subscribers/${manageFor.id}/plans/${impact.mapping.id}`,impact.body);setManageFor(current=>current?{...current,plans:current.plans.map(row=>row.id===impact.mapping.id?data as Mapping:row)}:current);setConnectionDrafts(current=>{const next={...current};delete next[impact.mapping.id];return next;});setImpact(null);void qc.invalidateQueries({queryKey:["subscribers"]});}catch(e){setError(errMessage(e));}finally{setSavingConnection(null);}}
   async function action(sub: SubRow, act: "suspend" | "activate" | "terminate") {
     if (act === "terminate" && !confirm(`Terminate ${sub.code}? This cannot be undone.`)) return;
     try { await api.post(`/subscribers/${sub.id}/${act}`); qc.invalidateQueries({ queryKey: ["subscribers"] }); }
@@ -201,10 +207,11 @@ export function SubscribersPage() {
                 {hasPerm("subscriber:update") && s.status !== "TERMINATED" && (
                   <>
                     <IconButton className="small" onClick={() => { setManageFor(s); setPoDraft(s.poNumber ?? ""); setError(""); }} icon="edit" label="Manage subscriber / PO number">Manage</IconButton>{" "}
+                    <IconButton className="small" icon="calendar" label="Service changes" onClick={() => setServiceFor(s)} />{" "}
                     {s.status === "ACTIVE"
-                      ? <IconButton className="small" onClick={() => void action(s, "suspend")} icon="more" label="Suspend">Suspend</IconButton>
+                      ? <IconButton className="small" onClick={() => void action(s, "suspend")} icon="pause" label="Suspend">Suspend</IconButton>
                       : <IconButton className="small" onClick={() => void action(s, "activate")} icon="check" label="Activate">Activate</IconButton>}{" "}
-                    <IconButton className="small danger" onClick={() => void action(s, "terminate")} icon="more" label="Terminate">Terminate</IconButton>
+                    <IconButton className="small danger" onClick={() => void action(s, "terminate")} icon="terminate" label="Terminate">Terminate</IconButton>
                   </>
                 )}
               </td>
@@ -288,6 +295,18 @@ export function SubscribersPage() {
                 {create.isPending ? "Creating…" : `Create (${selectedCount} plan${selectedCount === 1 ? "" : "s"})`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {impact && <div className="modal-overlay" style={{zIndex:1500}}><div className="modal" role="dialog" aria-modal="true"><h3>Review plan billing impact</h3><p>Current cycle price ₹{impact.data.oldCycle.toLocaleString("en-IN")} → new cycle price ₹{impact.data.newCycle.toLocaleString("en-IN")} before GST.</p><p>{impact.data.message}</p><div className="actions"><button onClick={()=>setImpact(null)}>Keep current connection</button><button disabled={savingConnection!==null} onClick={()=>void confirmConnectionChange()}>Confirm connection change</button></div></div></div>}
+      {serviceFor && hasPerm("subscriber:update") && (
+        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setServiceFor(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="service-changes-title" style={{ width: 600 }} onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setServiceFor(null); }}>
+            <h3 id="service-changes-title">Service changes — {serviceFor.code}</h3>
+            <p>{serviceFor.customer.name}</p>
+            <SubscriberSchedules key={serviceFor.id} id={serviceFor.id} />
+            <div className="actions"><button onClick={() => setServiceFor(null)}>Close</button></div>
           </div>
         </div>
       )}

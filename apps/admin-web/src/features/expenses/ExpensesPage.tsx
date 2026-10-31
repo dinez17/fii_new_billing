@@ -1,3 +1,4 @@
+import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
@@ -31,7 +32,7 @@ export function ExpensesPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     categoryId: "", vendorId: "", expenseDate: new Date().toISOString().slice(0, 10),
-    description: "", amount: "", gstRate: "0", mode: "CASH", reference: "",
+    description: "", amount: "", gstRate: "0", mode: "CASH", financialAccountId: "", reference: "",
     receiptDataUrl: "", receiptName: "",
   });
 
@@ -61,6 +62,7 @@ export function ExpensesPage() {
         description: form.description,
         amount: Number(form.amount),
         gstRate: Number(form.gstRate),
+        financialAccountId: form.financialAccountId || null,
         mode: form.mode,
         reference: form.reference || undefined,
         receiptDataUrl: form.receiptDataUrl || undefined,
@@ -216,6 +218,7 @@ export function ExpensesPage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
+                <MoneyAccountSelect value={form.financialAccountId} onChange={id=>setForm({...form,financialAccountId:id})} />
                 <label>Payment mode</label>
                 <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
                   <option>CASH</option><option>UPI</option><option>BANK_TRANSFER</option><option>CHEQUE</option><option>CARD</option>

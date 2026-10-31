@@ -1,3 +1,4 @@
+import {manualJournalAdjustments} from "./manual-journal-adjustments.js";
 import { prisma } from "./client.js";
 
 /**
@@ -92,8 +93,12 @@ async function pnlNumbers(tenantId: string, from: Date, to: Date): Promise<PnlNu
     .map((e) => ({ category: catName.get(e.categoryId) ?? "Other", amount: r2(n(e._sum.amount)) }))
     .sort((a, b) => b.amount - a.amount);
 
-  const salesNet = r2(n(sales._sum.taxableValue) - n(cn._sum.taxableValue) + n(dn._sum.taxableValue));
+  const manual=await manualJournalAdjustments(tenantId,range.gte,range.lte);for(const m of manual)if(m.account.type==="EXPENSE"&&m.debit!==m.credit)expenses.push({category:"Journal adjustment — "+m.account.name,amount:r2(m.debit-m.credit)});
+  const manualIncome=manual.filter(m=>m.account.type==="INCOME").reduce((n,m)=>n+m.credit-m.debit,0);
+  const salesNet = r2(manualIncome + n(sales._sum.taxableValue) - n(cn._sum.taxableValue) + n(dn._sum.taxableValue));
   const purchasesNet = r2(n(purch._sum.taxableValue) - n(pret._sum.taxableValue));
+  const [written,recovered]=await Promise.all([prisma.receivableWriteOff.aggregate({where:{tenantId,entryDate:range},_sum:{amount:true}}),prisma.receivableWriteOff.aggregate({where:{tenantId,reversedAt:range},_sum:{amount:true}})]);
+  const writeOff=r2(n(written._sum.amount)-n(recovered._sum.amount));if(writeOff)expenses.push({category:"Receivable write-offs / recoveries",amount:writeOff});
   const expenseTotal = r2(expenses.reduce((s, e) => s + e.amount, 0));
   // Trading a/c: GP = (Sales + Closing stock) − (Opening stock + Purchases)
   const grossProfit = r2(salesNet + closingStock - openingStock - purchasesNet);
@@ -243,8 +248,11 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
   // ── Build the two sides
   const liabilities: TallyLine[] = [];
   const assets: TallyLine[] = [];
-  const tdsReceivable = r2(n(tds._sum.tdsAmount));
+  const cleared=await prisma.tdsClearing.aggregate({where:{tenantId,clearingDate:upToRange,OR:[{reversedAt:null},{reversedAt:{gt:dayEnd(asOn)}}]},_sum:{amount:true}});
+  const tdsReceivable = r2(n(tds._sum.tdsAmount)-n(cleared._sum.amount));
   if (tdsReceivable !== 0) assets.push({ particulars: "TDS Receivable (recorded deductions)", amount: tdsReceivable });
+  const taxLines=await prisma.journalLine.aggregate({where:{tenantId,account:{tenantId,code:"SYS_TAX_PAYABLE"},journal:{entryDate:upToRange}},_sum:{credit:true,debit:true}});
+  const incomeTax=n(taxLines._sum.credit)-n(taxLines._sum.debit);if(incomeTax>0)liabilities.push({particulars:"Income-tax payable",amount:r2(incomeTax)});else if(incomeTax<0)assets.push({particulars:"Advance income tax",amount:r2(-incomeTax)});
   if (sundryCreditors !== 0) liabilities.push({ particulars: "Sundry Creditors", amount: sundryCreditors });
   if (gstPayable > 0) liabilities.push({ particulars: "Duties & Taxes (GST payable)", amount: gstPayable });
   liabilities.push({ particulars: profitAndLoss >= 0 ? "Profit & Loss A/c" : "Profit & Loss A/c (Dr)", amount: profitAndLoss, bold: true });
@@ -256,6 +264,8 @@ export async function computeBalanceSheet(tenantId: string, asOn: Date): Promise
   assets.push({ particulars: "Bank Accounts", amount: bankAccounts });
   if (gstPayable < 0) assets.push({ particulars: "Duties & Taxes (GST input credit)", amount: r2(-gstPayable) });
 
+  const manualBalance=await manualJournalAdjustments(tenantId,null,dayEnd(asOn));
+  for(const m of manualBalance){if(m.account.code==="SYS_TAX_PAYABLE")continue;if(m.account.type==="ASSET"&&m.debit!==m.credit)assets.push({particulars:"Journal adjustment — "+m.account.name,amount:r2(m.debit-m.credit)});else if(["LIABILITY","EQUITY"].includes(m.account.type)&&m.debit!==m.credit)liabilities.push({particulars:"Journal adjustment — "+m.account.name,amount:r2(m.credit-m.debit)});}
   const liabTotal = r2(liabilities.reduce((s, l) => s + l.amount, 0));
   const assetTotal = r2(assets.reduce((s, l) => s + l.amount, 0));
 

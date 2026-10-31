@@ -1,7 +1,7 @@
 import nodemailer, { type Transporter, type SendMailOptions } from "nodemailer";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
 import { prisma } from "@fii/database";
-import { createLogger, decryptSecret } from "@fii/common";
+import { createLogger, decryptSecret, companyMailCc } from "@fii/common";
 
 const log = createLogger("notification-worker");
 
@@ -123,7 +123,9 @@ export async function deliverNotification(id: string, suppliedAttachments?: Send
     const smtp = sender ? { from: "test@example.test", t: { sendMail: sender } } : await getTransport(row.tenantId);
     if (!smtp) throw new Error("SMTP not configured/enabled");
     const body = (row.body ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "<br/>");
-    await smtp.t.sendMail({ from: smtp.from, to: row.to, subject: row.subject ?? row.templateCode ?? "Notification",
+    const company=await prisma.tenant.findUniqueOrThrow({where:{id:row.tenantId},select:{email:true}});
+    const cc=companyMailCc(company.email,row.to);
+    await smtp.t.sendMail({ from: smtp.from, to: row.to, cc, subject: row.subject ?? row.templateCode ?? "Notification",
       messageId: `<${row.id}@notifications.fii-vaniga.local>`, html: body,
       attachments: attachments?.map(a => ({ ...a, contentType: "application/pdf" })) });
     await prisma.notificationLog.update({ where: { id }, data: { status: "SENT", sentAt: new Date(), error: null, lockedUntil: null, nextAttemptAt: null } });

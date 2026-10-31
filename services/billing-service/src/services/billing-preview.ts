@@ -1,4 +1,4 @@
-import { prisma } from "@fii/database";
+import { prisma, plannedSubscriberStatus } from "@fii/database";
 import { billingCycleSpan, computeGst } from "@fii/common";
 
 export async function previewBilling(tenantId: string, input: {
@@ -16,7 +16,7 @@ export async function previewBilling(tenantId: string, input: {
     const total = await tx.subscriber.count({ where });
     const subscribers = await tx.subscriber.findMany({ where, orderBy: { code: "asc" },
       skip: (input.page - 1) * input.limit, take: input.limit,
-      include: { customer: true, plans: { where: { endDate: null }, include: { plan: true } } } });
+      include: { customer: true, schedules:{where:{status:{in:["PENDING","APPLIED"]}}}, plans: { where: { endDate: null }, include: { plan: true } } } });
     const items = [];
     for (const sub of subscribers) {
       const mappings = sub.plans.filter(p => p.startDate <= end);
@@ -25,7 +25,10 @@ export async function previewBilling(tenantId: string, input: {
       let reason = sub.status !== "ACTIVE" ? "Subscriber is not active" : !sub.customer.isActive ? "Customer is inactive"
         : !tenant.stateCode ? "Company state code is missing" : !fy ? "Financial year is missing" : fy.isLocked ? "Financial year is locked"
         : !span ? "Not due: outside cycle boundary or initial partial period" : !mappings.length ? "No active plan for this period" : "";
+      if(!reason&&span&&plannedSubscriberStatus(sub.status,sub.schedules,span.spanStart)!=="ACTIVE")reason="Subscriber is scheduled inactive for this period";
       if (!reason && span && mappings.some(p => p.startDate > span.spanStart && sub.billingCycleMonths > 1)) reason = "Connection starts inside this period; review initial manual billing";
+      if(!reason&&span&&sub.schedules.some(s=>["PAUSE","TERMINATE"].includes(s.action)&&s.effectiveDate>=span.spanStart&&s.effectiveDate<=span.spanEnd))reason="Scheduled service interruption: review manual proration";
+      if(!reason&&span&&sub.schedules.some(s=>s.action==="RESUME"&&s.status==="APPLIED"&&s.effectiveDate>span.spanStart&&s.effectiveDate<=span.spanEnd))reason="Resumed inside this period: manual proration review";
       const overlaps = span ? await tx.invoice.findMany({ where: { tenantId, subscriberId: sub.id,
         OR: [{ status: { not: "CANCELLED" }, periodStart: { lte: span.spanEnd }, periodEnd: { gte: span.spanStart } }, { invoiceType: "SUBSCRIPTION", periodStart: span.spanStart }] }, select: { invoiceNumber: true } }) : [];
       if (!reason && overlaps.length) reason = `Already covered by ${overlaps.map(i => i.invoiceNumber).join(", ")}`;

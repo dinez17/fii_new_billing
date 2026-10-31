@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:net";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { prisma, createTenantBackup, restoreTenantBackup, validateTenantBackup } from "@fii/database";
 import { buildSalesDocumentPdfBuffer } from "@fii/pdf";
-import { emailSalesDocument } from "../src/services/mail.service.js";
+import { emailInvoice, emailSalesDocument } from "../src/services/mail.service.js";
 import { cancelSalesDocument, conversionBody, convertSalesDocument, createSalesDocument, documentBody, documentQuery, getSalesDocument, listSalesDocuments, updateSalesDocument } from "../src/services/sales-document.service.js";
 
 const suite = process.env.RUN_INTEGRATION_TESTS === "true" ? describe : describe.skip;
@@ -15,7 +15,7 @@ suite("quotation and proforma sales workflow", () => {
   const conversion = (version: number, target = "INVOICE", chargeGst = true) => conversionBody.parse({ version, target, chargeGst, documentDate: date, dueDate: due });
   beforeAll(async () => {
     const suffix = Date.now();
-    tenantId = (await prisma.tenant.create({ data: { name: "Quotation test company", subdomain: `quotation-${suffix}`, stateCode: "33", addressLine1: "Business Street", city: "Dindigul", pincode: "624001", bankName: "Example Bank", bankAccountNo: "123456789", bankIfsc: "TEST0000001" } })).id;
+    tenantId = (await prisma.tenant.create({ data: { name: "Quotation test company", email: "company@example.test", subdomain: `quotation-${suffix}`, stateCode: "33", addressLine1: "Business Street", city: "Dindigul", pincode: "624001", bankName: "Example Bank", bankAccountNo: "123456789", bankIfsc: "TEST0000001" } })).id;
     otherId = (await prisma.tenant.create({ data: { name: "Private other tenant", subdomain: `quotation-other-${suffix}` } })).id;
     actorId = (await prisma.user.create({ data: { tenantId, name: "Quotation staff", email: "staff@example.test", passwordHash: "test-only", status: "ACTIVE" } })).id;
     customerId = (await prisma.customer.create({ data: { tenantId, code: "CUSTOMER-Q", name: "Quotation customer", email: "customer@example.test", additionalEmails: ["accounts@example.test"], phone: "9876543210", stateCode: "33", billingAddress: "Buyer billing address", serviceAddress: "Installation location", city: "Dindigul" } })).id;
@@ -106,9 +106,15 @@ suite("quotation and proforma sales workflow", () => {
       const { buffer } = await buildSalesDocumentPdfBuffer(tenantId, id); expect(buffer.subarray(0, 5).toString()).toBe("%PDF-"); writeFileSync(`output/pdf/${filename}`, buffer);
     }
     const result = await emailSalesDocument(tenantId, quote.id); expect(result.to).toContain("accounts@example.test");
-    expect(messages).toHaveLength(1); expect(messages[0]).toContain("application/pdf"); expect(messages[0]).toContain("customer@example.test");
+    expect(messages).toHaveLength(1); expect(messages[0]).toContain("application/pdf"); expect(messages[0]).toContain("customer@example.test"); expect(messages[0]).toContain("Cc: company@example.test"); expect(result.cc).toBe("company@example.test");
     expect(await prisma.notificationLog.findFirst({ where: { tenantId, refId: quote.id, status: "SENT" } })).not.toBeNull();
     await cancelSalesDocument(tenantId, actorId, quote.id, 1, "Withdraw proposal"); await expect(emailSalesDocument(tenantId, quote.id)).rejects.toThrow(/Cancelled/); expect(messages).toHaveLength(1);
+  });
+  it("copies the own tenant company on a manually emailed invoice",async()=>{
+    const invoice=await prisma.invoice.findFirstOrThrow({where:{tenantId,status:{notIn:["CANCELLED","DRAFT"]}}});
+    const before=messages.length;const result=await emailInvoice(tenantId,invoice.id);
+    expect(result.to).toContain("customer@example.test");expect(result.cc).toBe("company@example.test");
+    expect(messages).toHaveLength(before+1);expect(messages[before]).toContain("Cc: company@example.test");expect(messages[before]).toContain("application/pdf");
   });
   it("includes quotations, proformas and conversion links in tenant backup without other tenants", async () => {
     const backup = await createTenantBackup(tenantId);

@@ -1,3 +1,4 @@
+import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize, ListTable } from "../../components/ListPagination";
@@ -19,7 +20,7 @@ interface PiDetail extends PiRow {
 }
 interface PayForm {
   supplierId: string; supplierName: string; amount: string; mode: string;
-  paymentDate: string; reference: string;
+  financialAccountId?: string; paymentDate: string; reference: string;
   allocations: Record<string, string>;
 }
 
@@ -65,6 +66,7 @@ export function PurchaseInvoicesPage() {
       await api.post("/supplier-payments", {
         supplierId: pay!.supplierId,
         amount: Number(pay!.amount),
+        financialAccountId: pay!.financialAccountId || null,
         mode: pay!.mode,
         paymentDate: pay!.paymentDate,
         reference: pay!.reference || undefined,
@@ -186,6 +188,7 @@ export function PurchaseInvoicesPage() {
                 <input type="number" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
               <div>
                 <label>Mode</label>
+                <MoneyAccountSelect value={pay.financialAccountId ?? ""} onChange={id=>setPay({...pay,financialAccountId:id})} />
                 <select value={pay.mode} onChange={(e) => setPay({ ...pay, mode: e.target.value })}>
                   <option>BANK_TRANSFER</option><option>CASH</option><option>UPI</option><option>CHEQUE</option><option>CARD</option>
                 </select>

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { Prisma, prisma } from "@fii/database";
+import { Prisma, prisma, syncSourceJournal } from "@fii/database";
 import { badRequest, notFound, computeGst } from "@fii/common";
 
 const money = z.coerce.number().finite().nonnegative().max(999999999999.99).multipleOf(0.01);
 export const legacySalesBody = z.object({ customerId: z.string().uuid(), invoiceNumber: z.string().trim().min(1).max(100),
   invoiceDate: z.coerce.date(), dueDate: z.coerce.date(), chargeGst: z.boolean(), isInterState: z.boolean(), expectedTotal: money, expectedBalance: money,
+  allowLockedHistory: z.boolean().default(false), writeOffAmount: money.default(0),
   note: z.string().trim().min(20).max(1000),
   items: z.array(z.object({ description: z.string().trim().min(1).max(300), hsnSac: z.string().max(10),
     quantity: z.coerce.number().positive().max(999999999).multipleOf(0.001), unitPrice: money, discount: money.default(0), gstRate: z.coerce.number().min(0).max(28) })).min(1).max(100),
@@ -32,7 +33,7 @@ async function prepare(tx: Prisma.TransactionClient, tenantId: string, id: strin
   const years = await tx.financialYear.findMany({ where: { tenantId } });
   const year = (date: Date) => {
     const fy = years.find(f => f.startDate <= date && f.endDate >= date);
-    if (!fy || fy.isLocked) throw badRequest("Every document date must have an existing unlocked financial year; locked history needs a separately reviewed operator migration");
+    if (!fy || (fy.isLocked && !input.allowLockedHistory)) throw badRequest("Every document date must have an existing unlocked financial year; locked history needs a separately reviewed operator migration");
     return fy.code;
   };
   const fyCode = year(input.invoiceDate);
@@ -53,7 +54,7 @@ async function prepare(tx: Prisma.TransactionClient, tenantId: string, id: strin
   if (roundOff.abs().gt(1)) throw badRequest("Verified invoice total disagrees with the corrected items/taxes by more than rounding; correct the items first");
   const totals = { ...computed, grandTotal: new Prisma.Decimal(input.expectedTotal).toFixed(2), roundOff: roundOff.toFixed(2) };
   const settlement = input.receipts.reduce((sum,r) => sum.add(r.amount).add(r.tdsAmount), new Prisma.Decimal(0));
-  const balance = new Prisma.Decimal(totals.grandTotal).sub(settlement);
+  const balance = new Prisma.Decimal(totals.grandTotal).sub(settlement).sub(input.writeOffAmount);
   if (balance.isNegative() || !balance.eq(input.expectedBalance)) throw badRequest("Corrected invoice total minus cash and TDS must exactly equal the verified balance. Write-offs must not be recorded as cash or TDS.");
   const token = createHash("sha256").update(JSON.stringify({ input, sourceHash: record.sourceHash, approval: approved, linked: linked.map(r => [r.id,r.status,r.targetId]).sort() })).digest("hex");
   return { record, customer, totals, settlement, balance, fyCode, token, year };
@@ -77,7 +78,7 @@ export function postLegacySales(tenantId: string, actorId: string, id: string, i
       chargeGst: input.chargeGst, isInterState: input.isInterState, gstTreatment: p.customer.gstTreatment,
       subTotal: p.totals.subTotal, discountTotal: p.totals.discountTotal, taxableValue: p.totals.taxableValue,
       cgst: p.totals.cgst, sgst: p.totals.sgst, igst: p.totals.igst, roundOff: p.totals.roundOff, grandTotal: p.totals.grandTotal,
-      amountPaid: p.settlement, status: p.balance.isZero() ? "PAID" : p.settlement.gt(0) ? "PARTIAL" : "UNPAID",
+      amountPaid: p.settlement, creditedAmount: input.writeOffAmount, status: p.balance.isZero() ? "PAID" : p.settlement.gt(0) ? "PARTIAL" : "UNPAID",
       notes: `Reconciled legacy source ${p.record.sourceId}. ${input.note}`, createdById: actorId,
       items: { create: input.items.map((i,index) => ({ ...i, gstRate: input.chargeGst ? i.gstRate : 0, ...p.totals.lines[index]! })) } } });
     await tx.ledgerEntry.create({ data: { tenantId, partyType: "CUSTOMER", partyId: input.customerId, fyCode: p.fyCode,
@@ -96,11 +97,14 @@ export function postLegacySales(tenantId: string, actorId: string, id: string, i
         mode: r.mode, amount, refType: "PAYMENT", refId: payment.id, narration: "Reconciled historical actual receipt", createdById: actorId } });
       await tx.legacyRecord.update({ where: { id: r.sourceRecordId }, data: { status: "IMPORTED", targetModel: "payment", targetId: payment.id, reason: "Reconciled financial posting" } });
     }
+    if(input.writeOffAmount>0){const adjustment=await tx.receivableWriteOff.create({data:{tenantId,invoiceId:invoice.id,amount:input.writeOffAmount,entryDate:input.invoiceDate,reason:input.note,createdById:actorId}});await tx.ledgerEntry.create({data:{tenantId,partyType:"CUSTOMER",partyId:input.customerId,fyCode:p.fyCode,entryDate:input.invoiceDate,entryType:"ADJUSTMENT",refType:"WRITE_OFF",refId:adjustment.id,credit:input.writeOffAmount,narration:"Verified legacy write-off: "+input.note}});await syncSourceJournal(tx,tenantId,"WRITE_OFF",adjustment.id,actorId);}
+    await syncSourceJournal(tx,tenantId,"INVOICE",invoice.id,actorId);
+    const payments=await tx.payment.findMany({where:{tenantId,allocations:{some:{invoiceId:invoice.id}}}});for(const payment of payments)await syncSourceJournal(tx,tenantId,"PAYMENT",payment.id,actorId);
     await tx.legacyRecord.update({ where: { id }, data: { status: "IMPORTED", targetModel: "invoice", targetId: invoice.id, reason: "Reconciled financial posting" } });
     await tx.legacyRecord.updateMany({ where: { tenantId, sourceHash: p.record.sourceHash, sourceTable: "user_bill_details", status: "REVIEW", data: { path: ["billid"], equals: p.record.sourceId } },
       data: { status: "ARCHIVED", reason: `Original items retained; corrected invoice ${invoice.invoiceNumber} posted` } });
     await tx.auditLog.create({ data: { tenantId, userId: actorId, action: "LEGACY_FINANCIAL_DOCUMENT_POSTED", entity: "LegacyRecord", entityId: id,
-      after: { invoiceId: invoice.id, total: p.totals.grandTotal, settlement: p.settlement.toFixed(2), balance: p.balance.toFixed(2), note: input.note, backupReference, previewToken: token } } });
+      after: { invoiceId: invoice.id, total: p.totals.grandTotal, settlement: p.settlement.toFixed(2), balance: p.balance.toFixed(2), note: input.note, backupReference, allowLockedHistory: input.allowLockedHistory, writeOffAmount: input.writeOffAmount, previewToken: token } } });
     return { invoiceId: invoice.id, balance: p.balance.toFixed(2) };
   }, { isolationLevel: "Serializable", timeout: 30000 });
 }

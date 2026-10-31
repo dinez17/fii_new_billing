@@ -1,4 +1,4 @@
-import { prisma, computeTallyPnl, computeBalanceSheet, type TallySide } from "@fii/database";
+import { manualJournalAdjustments, prisma, computeTallyPnl, computeBalanceSheet, type TallySide } from "@fii/database";
 
 export interface TableData {
   title: string;
@@ -111,7 +111,9 @@ async function profitLoss(tenantId: string, f: Filters): Promise<TableData> {
   ]);
   const cats = await prisma.expenseCategory.findMany({ where: { tenantId, id: { in: expCat.map((e) => e.categoryId) } }, select: { id: true, name: true } });
   const catName = new Map(cats.map((c) => [c.id, c.name]));
-  const revenue = round(num(sales._sum.taxableValue) - num(cn._sum.taxableValue) + num(dn._sum.taxableValue));
+  const manual=await manualJournalAdjustments(tenantId,start(d(f.from)),end(d(f.to)));
+  const manualIncome=manual.filter(m=>m.account.type==="INCOME").reduce((n,m)=>n+m.credit-m.debit,0);
+  const revenue = round(manualIncome + num(sales._sum.taxableValue) - num(cn._sum.taxableValue) + num(dn._sum.taxableValue));
   const cogs = round(num(pur._sum.taxableValue) - num(pret._sum.taxableValue));
   const rows: (string | number)[][] = [
     ["Revenue (net of notes)", revenue],
@@ -123,6 +125,9 @@ async function profitLoss(tenantId: string, f: Filters): Promise<TableData> {
     const amt = num(e._sum.amount); expTotal += amt;
     rows.push([`  Expense — ${catName.get(e.categoryId) ?? "?"}`, round(amt)]);
   }
+  for(const m of manual)if(m.account.type==="EXPENSE"){const amount=round(m.debit-m.credit);expTotal+=amount;rows.push(["Journal adjustment — "+m.account.name,amount]);}
+  const [written,recovered]=await Promise.all([prisma.receivableWriteOff.aggregate({where:{tenantId,entryDate:inv},_sum:{amount:true}}),prisma.receivableWriteOff.aggregate({where:{tenantId,reversedAt:inv},_sum:{amount:true}})]);
+  const writeOff=round(num(written._sum.amount)-num(recovered._sum.amount));expTotal+=writeOff;if(writeOff)rows.push(["Receivable write-offs / recoveries",writeOff]);
   rows.push(["Total expenses", round(expTotal)]);
   rows.push(["Net profit", round(revenue - cogs - expTotal)]);
   return { title: `Profit & Loss ${day(d(f.from))} to ${day(d(f.to))}`, columns: ["Line", "Amount"], rows };

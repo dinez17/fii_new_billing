@@ -1,3 +1,4 @@
+import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { DateInput } from "../../components/DateInput";
 import { RowsPerPage, usePageSize, ListPager } from "../../components/ListPagination";
 import { FinancialReportPeriod, useFinancialReportPeriod } from "../../components/FinancialReportPeriod";
@@ -31,7 +32,7 @@ export function DayBookPage() {
   const [closingNote, setClosingNote] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ type: "CASH_IN", mode: "CASH", amount: "", narration: "" });
+  const [form, setForm] = useState({ type: "CASH_IN", mode: "CASH", financialAccountId: "", amount: "", narration: "" });
 
   const book = useQuery({
     queryKey: ["day-book", mode, date, period.fyCode, period.from, period.to, page, pageSize],
@@ -41,8 +42,8 @@ export function DayBookPage() {
   });
 
   const add = useMutation({
-    mutationFn: async () => { await api.post("/day-book/manual-entry", { date, ...form, amount: Number(form.amount) }); },
-    onSuccess: () => { setAdding(false); setError(""); setForm({ type: "CASH_IN", mode: "CASH", amount: "", narration: "" }); qc.invalidateQueries({ queryKey: ["day-book"] }); },
+    mutationFn: async () => { await api.post("/day-book/manual-entry", { date, ...form, financialAccountId: form.financialAccountId || null, amount: Number(form.amount) }); },
+    onSuccess: () => { setAdding(false); setError(""); setForm({ type: "CASH_IN", mode: "CASH", financialAccountId: "", amount: "", narration: "" }); qc.invalidateQueries({ queryKey: ["day-book"] }); },
     onError: (err) => setError(errMessage(err)),
   });
 
@@ -123,6 +124,7 @@ export function DayBookPage() {
                 <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
                   <option value="CASH_IN">Cash In</option><option value="CASH_OUT">Cash Out</option>
                 </select></div>
+              <MoneyAccountSelect value={form.financialAccountId} onChange={id=>setForm({...form,financialAccountId:id})} />
               <div><label>Mode</label>
                 <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
                   <option>CASH</option><option>CHEQUE</option><option>BANK_TRANSFER</option><option>UPI</option><option>CARD</option>

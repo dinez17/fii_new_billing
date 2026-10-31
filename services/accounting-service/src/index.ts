@@ -1,3 +1,5 @@
+import {yearEndCloseRouter} from "./year-end-close.js";
+import { completionRouter } from "./completion-workflows.js";
 import express from "express";
 import helmet from "helmet";
 import type { NextFunction, Request, Response } from "express";
@@ -24,6 +26,8 @@ mountOps(app, {
   checks: [{ name: "db", check: async () => { await prisma.$queryRaw`SELECT 1`; } }],
 });
 
+app.use("/api/v1/financial-controls", yearEndCloseRouter);
+app.use("/api/v1/financial-controls", completionRouter);
 app.use("/api/v1/financial-controls", financialControlsRouter);
 app.use("/api/v1/day-book", dayBookRouter);
 app.use("/api/v1/ledger", ledgerRouter);

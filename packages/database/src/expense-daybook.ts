@@ -1,3 +1,4 @@
+import { syncSourceJournal } from "./automatic-journals.js";
 import { Prisma } from "@prisma/client";
 type Tx = Prisma.TransactionClient;
 const start = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -37,6 +38,7 @@ export async function cancelExpenseDayBook(tx: Tx, tenantId: string, id: string,
   if (!expense) throw new Error("Expense not found");
   const postings = await tx.dayBookEntry.findMany({ where: { tenantId, refType: "EXPENSE", refId: id } });
   const updated = expense.status === "CANCELLED" ? expense : await tx.expense.update({ where: { id }, data: { status: "CANCELLED" } });
+  await syncSourceJournal(tx,tenantId,"EXPENSE",id,userId);
   await tx.dayBookEntry.deleteMany({ where: { tenantId, refType: "EXPENSE", refId: id } });
   const firstDate = postings.reduce((date, posting) => posting.entryDate < date ? posting.entryDate : date, expense.expenseDate);
   const closings = postings.length ? await rebuildExpenseDayClosings(tx, tenantId, firstDate) : 0;
@@ -50,7 +52,7 @@ export async function postRecordedExpenseDayBook(tx: Tx, tenantId: string, id: s
   const expense = await lockedExpense(tx, tenantId, id);
   if (!expense || expense.status !== "RECORDED") return { posted: false };
   if (await tx.dayBookEntry.findFirst({ where: { tenantId, refType: "EXPENSE", refId: id } })) return { posted: false };
-  await tx.dayBookEntry.create({ data: { id: `expense:${id}`, tenantId, fyCode: expense.fyCode, entryDate: start(expense.expenseDate), type: "CASH_OUT", source: "EXPENSE", mode: expense.mode, amount: expense.total, refType: "EXPENSE", refId: id, narration: `Expense — ${expense.category.name}`, createdById: expense.createdById } });
+  await tx.dayBookEntry.create({ data: { id: `expense:${id}`, tenantId, fyCode: expense.fyCode, entryDate: start(expense.expenseDate), type: "CASH_OUT", source: "EXPENSE", mode: expense.mode, financialAccountId: expense.financialAccountId, amount: expense.total, refType: "EXPENSE", refId: id, narration: `Expense — ${expense.category.name}`, createdById: expense.createdById } });
   await rebuildExpenseDayClosings(tx, tenantId, expense.expenseDate);
   return { posted: true };
 }

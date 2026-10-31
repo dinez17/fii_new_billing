@@ -24,7 +24,7 @@ export async function postJournal(tenantId: string, actorId: string, input: z.in
     if (reversalOf) {
       await tx.$queryRaw`SELECT id FROM "JournalEntry" WHERE "tenantId" = ${tenantId} AND id = ${reversalOf} FOR UPDATE`;
       const original = await tx.journalEntry.findFirst({ where: { id: reversalOf, tenantId } });
-      if (!original || original.reversalOf || await tx.journalEntry.findFirst({ where: { tenantId, reversalOf } })) throw badRequest("Journal cannot be reversed again");
+      if (!original || original.source !== "MANUAL" || original.reversalOf || await tx.journalEntry.findFirst({ where: { tenantId, reversalOf } })) throw badRequest("Journal cannot be reversed again");
     }
     const journal = await tx.journalEntry.create({ data: { tenantId, fyCode: fy.code, entryDate: date, narration: input.narration,
       createdById: actorId, reversalOf, source: reversalOf ? "REVERSAL" : "MANUAL", lines: { create: input.lines.map(l => ({ ...l, tenantId })) } }, include: { lines: true } });
@@ -51,7 +51,7 @@ export async function trialBalance(tenantId: string, fyCode?: string) {
         credit: (period._sum.credit ?? new Prisma.Decimal(0)).toFixed(2), closing: closing.toFixed(2) });
     }
     return { fyCode: fy.code, items, difference: items.reduce((s,a) => s.add(a.closing), new Prisma.Decimal(0)).toFixed(2),
-      scope: "Explicit journals only. Existing invoice, expense and receipt reports remain operational reports; historical journals have not been inferred." };
+      scope: "Automatic source journals plus manual journals. Reconcile older source documents and verified opening balances for complete coverage." };
   }, { isolationLevel: "RepeatableRead" });
 }
 
@@ -66,7 +66,7 @@ export async function yearEndSnapshot(tx: Prisma.TransactionClient, tenantId: st
     const rows = await tx.$queryRawUnsafe<Array<{ hash: string }>>(`SELECT md5(COALESCE(string_agg(md5(to_jsonb(r)::text), ',' ORDER BY id),'')) AS hash FROM "${table}" r WHERE "tenantId" = $1 AND "fyCode" = $2`, tenantId, fyCode);
     fingerprints[table] = rows[0]!.hash;
   }
-  for (const table of ["Customer", "Supplier", "Product", "JournalLine", "BankStatementLine"]) {
+  for (const table of ["Customer", "Supplier", "Product", "JournalLine", "BankStatementLine", "TdsClearing", "ReceivableWriteOff"]) {
     const rows = await tx.$queryRawUnsafe<Array<{ hash: string }>>(`SELECT md5(COALESCE(string_agg(md5(to_jsonb(r)::text), ',' ORDER BY id),'')) AS hash FROM "${table}" r WHERE "tenantId" = $1`, tenantId);
     fingerprints[table] = rows[0]!.hash;
   }
@@ -108,6 +108,7 @@ financialControlsRouter.post("/accounts", authorize("settings:update"), h(async 
     type: z.enum(["ASSET","LIABILITY","EQUITY","INCOME","EXPENSE"]), isMoneyAccount: z.boolean().default(false) }), req.body);
   if (b.isMoneyAccount && b.type !== "ASSET") throw badRequest("Cash and bank accounts must be assets");
   res.status(201).json(await prisma.$transaction(async tx => {
+    if(b.code.startsWith("SYS_"))throw badRequest("SYS_ codes are reserved for automatic accounting");
     const account = await tx.financialAccount.create({ data: { ...b, tenantId: req.auth!.tenantId } });
     await tx.auditLog.create({ data: { tenantId: req.auth!.tenantId, userId: req.auth!.sub, action: "FINANCIAL_ACCOUNT_CREATED", entity: "FinancialAccount", entityId: account.id, after: b } });
     return account;

@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
+import { Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
 import { badRequest, computeGst, isValidGstin, notFound, partyListFilters, transactionPeriodFilters } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import { z } from "zod";
@@ -36,6 +36,7 @@ export const purchaseInvoiceBody = z.object({
 export const supplierPaymentBody = z.object({
   supplierId: z.string().uuid(),
   amount: z.coerce.number().positive(),
+  financialAccountId: z.string().uuid().nullable().optional(),
   mode: z.enum(["CASH", "CHEQUE", "BANK_TRANSFER", "UPI", "CARD"]),
   paymentDate: z.coerce.date(),
   reference: z.string().max(100).optional(),
@@ -300,6 +301,7 @@ export async function createSupplierPayment(tenantId: string, actorId: string, i
     const payment = await tx.supplierPayment.create({
       data: {
         tenantId, voucherNumber, fyCode: fy.code, supplierId: supplier.id,
+        financialAccountId: await moneyAccount(tx,tenantId,input.financialAccountId,input.mode),
         amount: new Prisma.Decimal(input.amount), mode: input.mode,
         paymentDate: input.paymentDate, reference: input.reference, notes: input.notes,
         createdById: actorId,

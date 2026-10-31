@@ -48,8 +48,9 @@ async function writeDayBook(
   narration: string,
   actorUserId: string | null,
 ): Promise<void> {
+  const moneySource = refType === "SUPPLIER_PAYMENT" ? await prisma.supplierPayment.findFirst({where:{tenantId,id:refId}}) : refType === "PAYSLIP" ? await prisma.payslip.findFirst({where:{tenantId,id:refId}}) : null;
   await prisma.dayBookEntry.create({
-    data: {
+    data: { financialAccountId: moneySource?.financialAccountId,
       tenantId,
       fyCode: await fyCodeFor(tenantId, at),
       entryDate: at,

@@ -1,3 +1,4 @@
+import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { ListTable } from "../../components/ListPagination";
@@ -52,8 +53,8 @@ export function PayrollPage() {
   });
 
   const markPaid = useMutation({
-    mutationFn: async ({ id, mode }: { id: string; mode: string }) =>
-      api.post(`/payroll/payslips/${id}/mark-paid`, { mode }),
+    mutationFn: async ({ id, mode, financialAccountId }: { id: string; mode: string; financialAccountId?:string }) =>
+      api.post(`/payroll/payslips/${id}/mark-paid`, { mode, financialAccountId:financialAccountId||null }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["payroll-run", detailId] });
       qc.invalidateQueries({ queryKey: ["payroll-runs"] });
@@ -173,7 +174,7 @@ export function PayrollPage() {
                     <td style={{ whiteSpace: "nowrap" }}>
                       <IconButton className="small" onClick={() => void openPdf(p.id)} icon="download" label="PDF">PDF</IconButton>{" "}
                       {p.status !== "PAID" && hasPerm("payroll:update") && (
-                        <MarkPaid disabled={markPaid.isPending} onPay={(mode) => markPaid.mutate({ id: p.id, mode })} />
+                        <MarkPaid disabled={markPaid.isPending} onPay={(mode,financialAccountId) => markPaid.mutate({ id: p.id, mode,financialAccountId })} />
                       )}
                     </td>
                   </tr>
@@ -190,16 +191,18 @@ export function PayrollPage() {
   );
 }
 
-function MarkPaid({ onPay, disabled }: { onPay: (mode: string) => void; disabled: boolean }) {
+function MarkPaid({ onPay, disabled }: { onPay: (mode: string,financialAccountId?:string) => void; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<string>(MODES[0]);
+  const [financialAccountId,setFinancialAccountId]=useState("");
   if (!open) return <button className="small primary" onClick={() => setOpen(true)}>Mark paid</button>;
   return (
     <span style={{ whiteSpace: "nowrap" }}>
+      <MoneyAccountSelect value={financialAccountId} onChange={setFinancialAccountId} />
       <select style={{ width: 130 }} value={mode} onChange={(e) => setMode(e.target.value)}>
         {MODES.map((m) => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
       </select>{" "}
-      <button className="small primary" disabled={disabled} onClick={() => onPay(mode)}>Pay</button>{" "}
+      <button className="small primary" disabled={disabled} onClick={() => onPay(mode,financialAccountId)}>Pay</button>{" "}
       <button className="small" onClick={() => setOpen(false)}>✕</button>
     </span>
   );

@@ -3,7 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { notFound } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { Prisma, prisma, computeTallyPnl, computeBalanceSheet } from "@fii/database";
+import { manualJournalAdjustments, Prisma, prisma, computeTallyPnl, computeBalanceSheet } from "@fii/database";
 import { h, parse, n, dayStart, dayEnd, dateRange } from "./util.js";
 
 export const reportsRouter = Router();
@@ -179,9 +179,13 @@ reportsRouter.get("/profit-loss", authorize("report:read"), h(async (req, res) =
     .sort((a, b) => b.amount - a.amount);
   const round = (v: number) => Math.round(v * 100) / 100;
 
-  const revenue = round(n(sales._sum.taxableValue) - n(creditNotes._sum.taxableValue) + n(debitNotes._sum.taxableValue));
+  const manual=await manualJournalAdjustments(tenantId,q.from,q.to);for(const m of manual)if(m.account.type==="EXPENSE"&&m.debit!==m.credit)expenses.push({category:"Journal adjustment — "+m.account.name,amount:round(m.debit-m.credit)});
+  const manualIncome=manual.filter(m=>m.account.type==="INCOME").reduce((n,m)=>n+m.credit-m.debit,0);
+  const revenue = round(manualIncome + n(sales._sum.taxableValue) - n(creditNotes._sum.taxableValue) + n(debitNotes._sum.taxableValue));
   const cogs = round(n(purchases._sum.taxableValue) - n(purchaseReturns._sum.taxableValue));
   const grossProfit = round(revenue - cogs);
+  const [written,recovered]=await Promise.all([prisma.receivableWriteOff.aggregate({where:{tenantId,entryDate:inv},_sum:{amount:true}}),prisma.receivableWriteOff.aggregate({where:{tenantId,reversedAt:inv},_sum:{amount:true}})]);
+  const writeOff=n(written._sum.amount)-n(recovered._sum.amount);if(writeOff)expenses.push({category:"Receivable write-offs / recoveries",amount:round(writeOff)});
   const expenseTotal = round(expenses.reduce((s, e) => s + e.amount, 0));
   const netProfit = round(grossProfit - expenseTotal);
 

@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, prisma, termsFor } from "@fii/database";
+import { Prisma, plannedSubscriberStatus, applySubscriberSchedules, syncSourceJournal, allocateNumber, prisma, termsFor } from "@fii/database";
 import { billingCycleSpan, computeGst, createLogger } from "@fii/common";
 import { TOPICS, makeEnvelope } from "@fii/kafka";
 
@@ -27,6 +27,7 @@ const fmt = (d: Date) =>
 export async function processRun(spec: RunSpec): Promise<void> {
   const { tenantId, cycleType, periodStart, periodEnd } = spec;
   const taxMode = spec.taxMode ?? "ALL";
+  await prisma.$transaction(tx=>applySubscriberSchedules(tx,tenantId),{timeout:60000});
   if (!["ALL", "GST", "WITHOUT_GST"].includes(taxMode)) throw new Error("Invalid billing GST mode");
 
   const run = await prisma.billingRun.upsert({
@@ -65,6 +66,7 @@ export async function processRun(spec: RunSpec): Promise<void> {
       where: { tenantId, status: "ACTIVE", subscriberType: cycleType, ...(taxMode === "ALL" ? {} : { chargeGst: taxMode === "GST" }) },
       include: {
         customer: true,
+        schedules: { where: {status:{in:["PENDING","APPLIED"]}} },
         plans: { where: { endDate: null, startDate: { lte: periodEnd } }, include: { plan: true } },
         _count: { select: { plans: { where: { endDate: null } } } },
       },
@@ -102,6 +104,9 @@ export async function processRun(spec: RunSpec): Promise<void> {
           continue;
         }
 
+        if(plannedSubscriberStatus(sub.status,sub.schedules,spanStart)!=="ACTIVE")throw new Error("Subscriber is scheduled inactive for this period");
+        if(sub.schedules.some(s=>["PAUSE","TERMINATE"].includes(s.action)&&s.effectiveDate>=spanStart&&s.effectiveDate<=spanEnd))throw new Error("Scheduled service interruption: review manual proration before billing");
+        if(sub.schedules.some(s=>s.action==="RESUME"&&s.status==="APPLIED"&&s.effectiveDate>spanStart&&s.effectiveDate<=spanEnd))throw new Error("Resumed inside billing period: review manual proration");
         const mappings = sub.plans;
         if (mappings.length === 0) throw new Error("no active plan mapped");
         if (sub.billingCycleMonths > 1 && mappings.some(m => m.startDate > spanStart)) throw new Error("Connection starts inside period; review initial manual billing");
@@ -177,6 +182,7 @@ export async function processRun(spec: RunSpec): Promise<void> {
               },
             },
           });
+          await syncSourceJournal(tx, tenantId, "INVOICE", invoice.id);
           await tx.outboxEvent.create({
             data: {
               tenantId,

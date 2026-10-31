@@ -4,7 +4,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z, type ZodTypeAny } from "zod";
 import { AppError, badRequest, createLogger, notFound, httpMetrics, mountOps, transactionPeriodFilters } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { Prisma, prisma, cancelExpenseDayBook } from "@fii/database";
+import { moneyAccount, Prisma, prisma, cancelExpenseDayBook } from "@fii/database";
 import { TOPICS, makeEnvelope, startOutboxRelay, writeOutbox } from "@fii/kafka";
 
 const log = createLogger("expense-service");
@@ -34,6 +34,7 @@ const expenseBody = z.object({
   amount: z.coerce.number().positive(), // taxable amount
   gstRate: z.coerce.number().min(0).max(28).default(0),
   isInterState: z.boolean().default(false),
+  financialAccountId: z.string().uuid().nullable().optional(),
   mode: z.enum(["CASH", "CHEQUE", "BANK_TRANSFER", "UPI", "CARD"]),
   reference: z.string().max(100).optional(),
   receiptDataUrl: z.string()
@@ -155,6 +156,7 @@ app.post("/api/v1/expenses", authenticate, authorize("expense:create"), h(async 
         gstAmount: new Prisma.Decimal(gstAmount),
         isInterState: b.isInterState,
         total: new Prisma.Decimal(total),
+        financialAccountId: await moneyAccount(tx,tenantId,b.financialAccountId,b.mode),
         mode: b.mode,
         reference: b.reference,
         receiptUrl: b.receiptDataUrl,

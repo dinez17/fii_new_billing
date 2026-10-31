@@ -1,4 +1,4 @@
-import { Prisma, prisma, postCustomerPayment } from "@fii/database";
+import { Prisma, prisma, postCustomerPayment, moneyAccount, syncSourceJournal } from "@fii/database";
 import { badRequest, notFound, transactionPeriodFilters, encryptSecret, decryptSecret } from "@fii/common";
 import { z } from "zod";
 import { settleWithinTx } from "./settle.js";
@@ -9,6 +9,7 @@ export const paymentCreateBody = z.object({
   amount: money,
   tdsAmount: money.default(0),
   tdsSection: z.string().trim().max(30).optional(),
+  financialAccountId: z.string().uuid().nullable().optional(),
   mode: z.enum(["CASH", "CHEQUE", "BANK_TRANSFER", "UPI", "CARD"]),
   paymentDate: z.coerce.date(),
   reference: z.string().max(100).optional(),
@@ -71,6 +72,7 @@ export async function createPayment(
         amount: new Prisma.Decimal(input.amount),
         tdsAmount: new Prisma.Decimal(input.tdsAmount),
         tdsSection: input.tdsAmount > 0 ? input.tdsSection : undefined,
+        financialAccountId: await moneyAccount(tx,tenantId,input.financialAccountId,input.mode),
         mode: input.mode,
         status: "SUCCESS",
         paymentDate: input.paymentDate,
@@ -169,6 +171,7 @@ export async function reversePayment(tenantId: string, actorId: string, id: stri
     const payment = await tx.payment.findFirst({ where: { id, tenantId }, include: { allocations: true, receipt: true } });
     if (!payment) throw notFound("Payment");
     if (payment.status !== "SUCCESS") throw badRequest("Only successful payments can be reversed; this payment may already be reversed");
+    if(await tx.tdsClearing.count({where:{tenantId,paymentId:id,reversedAt:null}}))throw badRequest("Reverse this receipt’s TDS clearings before reversing the receipt");
     if (payment.gateway) throw badRequest("Gateway payments require a confirmed provider refund; they cannot be reversed as manual receipts");
     await tx.$queryRaw`SELECT id FROM "FinancialYear" WHERE "tenantId" = ${tenantId} AND code = ${payment.fyCode} FOR SHARE`;
     const fy = await activeFy(tenantId, payment.paymentDate, tx);
@@ -191,9 +194,10 @@ export async function reversePayment(tenantId: string, actorId: string, id: stri
       fyCode: payment.fyCode, entryDate: payment.paymentDate, entryType: "ADJUSTMENT", refType: "PAYMENT_REVERSAL", refId: id,
       refNumber: payment.receipt.receiptNumber, debit: payment.amount.add(payment.tdsAmount), narration: `Receipt reversed: ${reason}` } });
     if (payment.amount.gt(0)) await tx.dayBookEntry.create({ data: { tenantId, fyCode: payment.fyCode, entryDate: payment.paymentDate,
-      type: "CASH_OUT", source: "INVOICE_PAYMENT", mode: payment.mode, amount: payment.amount,
+      type: "CASH_OUT", source: "INVOICE_PAYMENT", mode: payment.mode, financialAccountId: payment.financialAccountId, amount: payment.amount,
       refType: "PAYMENT_REVERSAL", refId: id, narration: `Receipt ${payment.receipt.receiptNumber} reversed: ${reason}`, createdById: actorId } });
     await tx.payment.update({ where: { id }, data: { status: "REFUNDED", failureReason: `REVERSED: ${reason}` } });
+    await syncSourceJournal(tx,tenantId,"PAYMENT",id,actorId);
     await tx.auditLog.create({ data: { tenantId, userId: actorId, action: "PAYMENT_REVERSED", entity: "Payment", entityId: id,
       before: { status: payment.status, cash: payment.amount.toFixed(2), tds: payment.tdsAmount.toFixed(2) },
       after: { status: "REFUNDED", reason, effectiveDate: payment.paymentDate.toISOString() } } });
@@ -209,6 +213,8 @@ export async function saveTdsReview(tenantId: string, actorId: string, id: strin
     await tx.$queryRaw`SELECT id FROM "Payment" WHERE "tenantId" = ${tenantId} AND id = ${id} FOR UPDATE`;
     const payment = await tx.payment.findFirst({ where: { tenantId, id, status: "SUCCESS", tdsAmount: { gt: 0 } } });
     if (!payment) throw notFound("Successful TDS payment");
+    const cleared=await tx.tdsClearing.aggregate({where:{tenantId,paymentId:id,reversedAt:null},_sum:{amount:true}});
+    if(new Prisma.Decimal(input.verifiedAmount).lt(cleared._sum.amount??0))throw badRequest("Verified credit cannot be reduced below active TDS clearings");
     if (new Prisma.Decimal(input.verifiedAmount).gt(payment.tdsAmount)) throw badRequest("Verified credit cannot exceed this receipt's TDS deduction");
     let certificate: string | undefined;
     if (input.certificateBase64) {

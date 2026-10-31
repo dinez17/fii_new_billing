@@ -9,7 +9,7 @@
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import cron from "node-cron";
-import { prisma } from "@fii/database";
+import { prisma, applySubscriberSchedules } from "@fii/database";
 import { createLogger, runPgDump, startOpsServer } from "@fii/common";
 import { TOPICS, makeEnvelope, publish } from "@fii/kafka";
 
@@ -92,6 +92,8 @@ async function autoBackup(): Promise<void> {
   log.info({ file, kept: Math.min(dumps.length, keep) }, "nightly backup written");
 }
 
+async function scheduledSubscriberChanges(){for(const tenantId of await activeTenants())await prisma.$transaction(tx=>applySubscriberSchedules(tx,tenantId),{timeout:60000});}
+cron.schedule("*/15 * * * *",()=>{void scheduledSubscriberChanges().catch(e=>log.error({err:String(e)},"Subscriber schedules failed"));});
 // ── cron wiring
 if (process.env.INTERNAL_BACKUP_ENABLED !== "false") {
   cron.schedule(process.env.CRON_BACKUP ?? "0 2 * * *", () => {

@@ -1,3 +1,4 @@
+import {subscriberSchedulesRouter} from "./subscriber-schedules.js";
 import express from "express";
 import helmet from "helmet";
 import { httpMetrics, mountOps } from "@fii/common";
@@ -16,6 +17,7 @@ mountOps(app, { name: "crm-service", checks: [{ name: "db", check: async () => {
 
 app.use("/api/v1/customers", customersRouter);
 app.use("/api/v1/plans", plansRouter);
+app.use("/api/v1/subscribers", subscriberSchedulesRouter);
 app.use("/api/v1/subscribers", subscribersRouter);
 app.use("/api/v1/portal/me", portalMeRouter);
 

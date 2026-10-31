@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { badRequest } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { Prisma, prisma } from "@fii/database";
+import { moneyAccount, syncSourceJournal, Prisma, prisma } from "@fii/database";
 import { h, parse, n, dayStart, dayEnd } from "./util.js";
 
 import { computeDayBookDay, computeDayBookPeriod, saveDayBookClosing } from "./daybook-balances.js";
@@ -18,6 +18,7 @@ dayBookRouter.get("/", authorize("day_book:read"), h(async (req, res) => {
 const manualBody = z.object({
   date: z.coerce.date(),
   type: z.enum(["CASH_IN", "CASH_OUT"]),
+  financialAccountId: z.string().uuid().nullable().optional(),
   mode: z.enum(["CASH", "CHEQUE", "BANK_TRANSFER", "UPI", "CARD"]).default("CASH"),
   amount: z.coerce.number().positive(),
   narration: z.string().min(2).max(300),
@@ -29,19 +30,19 @@ dayBookRouter.post("/manual-entry", authorize("day_book:create"), h(async (req, 
   const day = dayStart(b.date);
   const fy = await prisma.financialYear.findFirst({ where: { tenantId, startDate: { lte: day }, endDate: { gte: day } } });
   if (!fy || fy.isLocked) throw badRequest("Choose a date in an unlocked financial year");
-  res.status(201).json(await prisma.dayBookEntry.create({
+  res.status(201).json(await prisma.$transaction(async tx => { const accountId = await moneyAccount(tx,tenantId,b.financialAccountId,b.mode); const entry = await tx.dayBookEntry.create({
     data: {
       tenantId,
       fyCode: fy.code,
       entryDate: day,
       type: b.type,
-      source: "MANUAL",
+      source: "MANUAL", financialAccountId: accountId,
       mode: b.mode,
       amount: new Prisma.Decimal(b.amount),
       narration: b.narration,
       createdById: req.auth!.sub,
     },
-  }));
+  }); await syncSourceJournal(tx,tenantId,"MANUAL_CASH",entry.id,req.auth!.sub); return entry; }));
 }));
 
 /** Save a reconciliation snapshot; later/backdated changes are flagged for review. */

@@ -1,3 +1,4 @@
+import {WriteOffModal} from "./WriteOffModal";
 import { formatDate } from "../../lib/date";
 import { downloadPdf as savePdf } from "../../lib/pdf-download";
 import { IconButton } from "../../components/IconButton";
@@ -27,6 +28,7 @@ const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFra
 
 export function InvoicesPage() {
   const qc = useQueryClient();
+  const [writeOff,setWriteOff]=useState<InvoiceRow|null>(null);
   const navigate = useNavigate();
   const hasPerm = useAuth((s) => s.hasPerm);
   const [page, setPage] = useState(1);
@@ -112,6 +114,7 @@ export function InvoicesPage() {
 
   return (
     <>
+      {writeOff && <WriteOffModal invoice={writeOff} close={()=>setWriteOff(null)} />}
       <h2 className="page-title">Invoices</h2>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
@@ -166,6 +169,7 @@ export function InvoicesPage() {
                   <IconButton className="small" title="Sales return / credit note"
                     onClick={() => navigate("/notes", { state: { invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, kind: "credit" } })} icon="return" label="Return">Return</IconButton>
                 )}
+                {hasPerm("credit_note:create") && Number(inv.balance)>0 && inv.status!=="CANCELLED" && <button className="small" onClick={()=>setWriteOff(inv)}>Write off</button>}
                 {hasPerm("invoice:update") && inv.status === "UNPAID" && <>
                   {" "}<IconButton className="small danger" icon="close" label="Cancel invoice" onClick={() => void cancelInvoice(inv)} />
                   {" "}<IconButton className="small" icon="edit" label="Edit invoice" onClick={() => navigate(`/invoices/${inv.id}/edit`)} />

@@ -568,6 +568,8 @@ model Subscriber {
 
   @@unique([tenantId, code])
   @@index([tenantId, status, subscriberType])
+  schedules SubscriberSchedule[]
+
 }
 
 model SubscriberPlan {
@@ -736,6 +738,8 @@ model Invoice {
   @@index([tenantId, status, dueDate])
   @@index([tenantId, customerId])
   @@index([tenantId, fyCode, invoiceDate])
+  writeOffs ReceivableWriteOff[]
+
 }
 
 model InvoiceItem {
@@ -839,6 +843,11 @@ model Payment {
   @@unique([tenantId, gatewayOrderId])
   @@index([tenantId, customerId, paymentDate])
   @@index([tenantId, status])
+  financialAccountId String?
+  financialAccount FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+
+  tdsClearings TdsClearing[]
+
 }
 
 model PaymentAllocation {
@@ -1046,6 +1055,9 @@ model SupplierPayment {
 
   @@unique([tenantId, voucherNumber])
   @@index([tenantId, supplierId, paymentDate])
+  financialAccountId String?
+  financialAccount FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+
 }
 
 model SupplierPaymentAllocation {
@@ -1153,6 +1165,12 @@ model Expense {
 
   @@index([tenantId, fyCode, expenseDate])
   @@index([tenantId, categoryId])
+  financialAccountId String?
+  financialAccount FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+
+  payslipId String? @unique
+  payslip Payslip? @relation(fields:[payslipId],references:[id])
+
 }
 
 // ─────────────────────────────────────────────── ACCOUNTING: LEDGER & DAY BOOK
@@ -1193,6 +1211,9 @@ model DayBookEntry {
   createdAt   DateTime      @default(now())
 
   @@index([tenantId, entryDate])
+  financialAccountId String?
+  financialAccount FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+
 }
 
 model DayBookClosing {
@@ -1335,6 +1356,11 @@ model Payslip {
 
   @@unique([payrollRunId, employeeId])
   @@index([tenantId, employeeId])
+  financialAccountId String?
+  financialAccount FinancialAccount? @relation(fields: [financialAccountId], references: [id])
+
+  salaryExpense Expense?
+
 }
 
 // ─────────────────────────────────────────────── HELPDESK: COMPLAINTS & TASKS
@@ -1526,6 +1552,12 @@ model FinancialAccount {
   lines JournalLine[]
   statements BankStatementLine[]
   @@unique([tenantId, code])
+  payments Payment[]
+  supplierPayments SupplierPayment[]
+  expenses Expense[]
+  payslips Payslip[]
+  dayBookEntries DayBookEntry[]
+
 }
 model JournalEntry {
   id String @id @default(uuid())
@@ -1542,6 +1574,8 @@ model JournalEntry {
   @@unique([tenantId, source, sourceId])
   @@unique([tenantId, reversalOf])
   @@index([tenantId, fyCode, entryDate])
+  tdsClearing TdsClearing?
+
 }
 model JournalLine {
   id String @id @default(uuid())
@@ -1572,4 +1606,49 @@ model BankStatementLine {
   reconciledAt DateTime?
   @@unique([tenantId, accountId, importKey])
   @@index([tenantId, accountId, statementDate])
+}
+
+model TdsClearing {
+  id String @id @default(uuid())
+  tenantId String
+  paymentId String
+  payment Payment @relation(fields: [paymentId], references: [id])
+  amount Decimal @db.Decimal(14,2)
+  clearingDate DateTime @db.Date
+  kind String
+  reference String
+  journalId String @unique
+  journal JournalEntry @relation(fields: [journalId], references: [id])
+  reversedAt DateTime?
+  createdById String
+  createdAt DateTime @default(now())
+  @@index([tenantId,paymentId])
+}
+model ReceivableWriteOff {
+  id String @id @default(uuid())
+  tenantId String
+  invoiceId String
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  amount Decimal @db.Decimal(14,2)
+  entryDate DateTime @db.Date
+  reason String
+  reversedAt DateTime?
+  createdById String
+  createdAt DateTime @default(now())
+  @@index([tenantId,invoiceId])
+}
+model SubscriberSchedule {
+  id String @id @default(uuid())
+  tenantId String
+  subscriberId String
+  subscriber Subscriber @relation(fields: [subscriberId], references: [id])
+  action String
+  effectiveDate DateTime @db.Date
+  status String @default("PENDING")
+  note String
+  processedAt DateTime?
+  error String?
+  createdById String
+  createdAt DateTime @default(now())
+  @@index([tenantId,status,effectiveDate])
 }

@@ -1,7 +1,10 @@
 import type { ButtonHTMLAttributes } from "react";
 
-export type ActionName = "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning" | "print" | "convert";
+export type ActionName = "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning" | "print" | "convert" | "calendar" | "pause" | "terminate";
 const paths: Record<ActionName, string> = {
+  pause: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM9 8v8M15 8v8",
+  terminate: "M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6ZM8 8l8 8M16 8l-8 8",
+  calendar: "M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM7 2v4M17 2v4M3 10h18M7 14h3M14 14h3M7 18h3",
   print: "M6 9V2h12v7M6 18H3V9h18v9h-3M6 14h12v8H6zM17 12h1",
   convert: "M3 7h16m-5-5 5 5-5 5M21 17H5m5-5-5 5 5 5",
   edit: "m16 3 5 5M4 20l4-1L21 6l-5-5L3 14l-1 8z",
