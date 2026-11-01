@@ -15,7 +15,7 @@ interface OpenInvoice { id: string; invoiceNumber: string; invoiceDate: string; 
 const invBalance = (i: OpenInvoice) => Number(i.grandTotal) - Number(i.amountPaid) - Number(i.creditedAmount ?? 0);
 interface PaymentRow {
   id: string; amount: string; tdsAmount: string; mode: string; paymentDate: string; reference?: string; status: string;
-  customer: { name: string; phone: string };
+  customer: { name: string; phone: string; whatsappInvoiceEnabled?: boolean };
   receipt?: { id: string; receiptNumber: string } | null;
   allocations: { amount: string; invoice: { invoiceNumber: string } }[];
 }
@@ -121,6 +121,13 @@ export function PaymentsPage() {
     onError: (err) => setError(errMessage(err)),
   });
 
+  const [sendingReceipt,setSendingReceipt]=useState<string|null>(null);
+  async function sendReceipt(p:PaymentRow,channel:"email"|"whatsapp"){
+    if(!p.receipt||!confirm(`Send receipt ${p.receipt.receiptNumber} PDF by ${channel==="email"?"email":"WhatsApp"}?`))return;
+    setSendingReceipt(p.id);
+    try{await api.post(`/receipts/${p.receipt.id}/${channel}`,{requestId:crypto.randomUUID()});alert("Receipt queued. Check Notifications → Send log for its status.");}catch(err){alert(errMessage(err));}finally{setSendingReceipt(null);}
+  }
+
   async function downloadReceipt(p: PaymentRow) {
     if (!p.receipt) return;
     try {
@@ -160,7 +167,7 @@ export function PaymentsPage() {
               <td>{inr(p.amount)}</td><td>{inr(p.tdsAmount ?? 0)}</td>
               <td><span className="badge">{p.mode}</span>{p.reference && <span style={{ color: "var(--muted)", marginLeft: 6, fontSize: 12 }}>{p.reference}</span>}</td>
               <td style={{ fontSize: 12 }}>{p.allocations.map((a) => a.invoice.invoiceNumber).join(", ")}</td>
-              <td><span className={`badge ${p.status === "SUCCESS" ? "ok" : "warn"}`}>{p.status === "REFUNDED" ? "Reversed / refunded" : p.status}</span>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}{p.status === "SUCCESS" && hasPerm("payment:update") && <button className="small" onClick={() => { setReversing(p); setReverseReason(""); reverse.reset(); }}>Reverse</button>}</td>
+              <td><span className={`badge ${p.status === "SUCCESS" ? "ok" : "warn"}`}>{p.status === "REFUNDED" ? "Reversed / refunded" : p.status}</span>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}{p.receipt && p.status==="SUCCESS" && hasPerm("receipt:read") && <><IconButton className="small" icon="mail" label="Email receipt" disabled={sendingReceipt===p.id} onClick={()=>void sendReceipt(p,"email")}/>{p.customer.whatsappInvoiceEnabled && <IconButton className="small" icon="whatsapp" label="Send receipt on WhatsApp" disabled={sendingReceipt===p.id} onClick={()=>void sendReceipt(p,"whatsapp")}/>}</>}{p.status === "SUCCESS" && hasPerm("payment:update") && <button className="small" onClick={() => { setReversing(p); setReverseReason(""); reverse.reset(); }}>Reverse</button>}</td>
             </tr>
           ))}
           {list.data && list.data.items.length === 0 && (

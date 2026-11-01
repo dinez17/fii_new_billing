@@ -29,6 +29,7 @@ suite("party list filtering and global ranking", () => {
   });
   afterAll(async () => {
     const where = { tenantId: { in: [tenantId, foreignId] } };
+    await prisma.subscriber.deleteMany({ where });
     await prisma.invoice.deleteMany({ where });
     await prisma.purchaseInvoice.deleteMany({ where });
     await prisma.ledgerEntry.deleteMany({ where });
@@ -36,6 +37,16 @@ suite("party list filtering and global ranking", () => {
     await prisma.supplier.deleteMany({ where });
     await prisma.tenant.deleteMany({ where: { id: { in: [tenantId, foreignId] } } });
     await prisma.$disconnect();
+  });
+  it("ranks subscription customers across pages, counts only their tenant, and retains filters",async()=>{
+    await prisma.subscriber.createMany({data:[{tenantId,customerId:customerIds[0],code:"SUB-1",subscriberType:"PREPAID",activationDate:new Date()},{tenantId,customerId:customerIds[2],code:"SUB-2",subscriberType:"PREPAID",activationDate:new Date()},{tenantId,customerId:customerIds[2],code:"SUB-3",subscriberType:"PREPAID",status:"SUSPENDED",activationDate:new Date()},{tenantId:foreignId,customerId:customerIds[1],code:"FOREIGN-SUB",subscriberType:"PREPAID",activationDate:new Date()}]});
+    await prisma.subscriber.createMany({data:[1,2,3].map(i=>({tenantId,customerId:customerIds[1],code:`ENDED-${i}`,subscriberType:"PREPAID" as const,status:"TERMINATED" as const,activationDate:new Date()}))});
+    const query={page:1,limit:1,sortBy:"subscriptionCount" as const,order:"desc" as const};
+    expect((await rankParties(tenantId,"CUSTOMER",query)).items[0]).toMatchObject({id:customerIds[2],subscriptionCount:2});
+    expect((await rankParties(tenantId,"CUSTOMER",{...query,page:2})).items[0]).toMatchObject({id:customerIds[0],subscriptionCount:1});
+    expect((await rankParties(tenantId,"CUSTOMER",{...query,page:3})).items[0]).toMatchObject({id:customerIds[1],subscriptionCount:0});
+    expect((await rankParties(tenantId,"CUSTOMER",{page:1,limit:20})).items[0].id).toBe(customerIds[2]);
+    expect((await rankParties(tenantId,"CUSTOMER",{...query,activity:"inactive",balance:"due"})).items[0].id).toBe(customerIds[1]);
   });
   for (const type of ["CUSTOMER", "SUPPLIER"] as const) {
     it(`${type}: sorts balances and counts before pagination with exact tenant-scoped totals`, async () => {

@@ -10,8 +10,8 @@ export function WhatsAppTab(){
  useEffect(()=>{if(query.data)setForm({apiUrl:query.data.apiUrl??"https://wapi.fiitech.in",provider:"FII_WAPI",enabled:query.data.enabled??"false",apiKey:"",deviceId:query.data.deviceId??""});},[query.data]);
  const save=useMutation({mutationFn:()=>api.put("/settings/group/WHATSAPP",form),onSuccess:()=>{setForm(f=>({...f,apiKey:""}));setMessage("WhatsApp settings saved.");void query.refetch();}});
  const test=useMutation({mutationFn:async()=> (await api.post("/settings/whatsapp/test")).data as {credits:number;devices:{id:number;name:string;isReady:boolean}[]},onSuccess:r=>setMessage(`Connection successful. Credits: ${r.credits}. Ready devices: ${r.devices.filter(d=>d.isReady).map(d=>`${d.name} (${d.id})`).join(", ")||"none"}.`)});
- return <section className="card" style={{maxWidth:760}}><h3>WhatsApp invoice delivery</h3>
- <p>Provider: <a href="https://wapi.fiitech.in/api-docs" target="_blank" rel="noreferrer">FII WAPI</a>. Select WhatsApp delivery on each customer. New invoices, including bill-run invoices, are queued automatically.</p>
+ return <section className="card" style={{maxWidth:760}}><h3>WhatsApp invoice and receipt delivery</h3>
+ <p>Provider: <a href="https://wapi.fiitech.in/api-docs" target="_blank" rel="noreferrer">FII WAPI</a>. Select WhatsApp delivery on each customer. New invoices, including bill-run invoices, and successful payment receipts are queued automatically.</p>
  <label><input type="checkbox" checked={form.enabled==="true"} disabled={!canEdit} onChange={e=>setForm({...form,enabled:String(e.target.checked)})}/> Enable WhatsApp</label>
  <label htmlFor="whatsapp-api-url">WhatsApp API URL</label><input id="whatsapp-api-url" type="url" placeholder="https://wapi.fiitech.in" disabled={!canEdit} value={form.apiUrl} onChange={e=>setForm({...form,apiUrl:e.target.value})}/><small>Enter the API base URL. The document endpoint is added automatically.</small>
  <label>API key {query.data?.apiKey?"(saved; leave blank to keep)":""}</label><input type="password" autoComplete="new-password" disabled={!canEdit} value={form.apiKey} onChange={e=>setForm({...form,apiKey:e.target.value})}/>

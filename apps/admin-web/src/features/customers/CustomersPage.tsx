@@ -16,7 +16,7 @@ interface CustomerRow {
   id: string; code: string; name: string; phone: string | null; email?: string;
   gstin?: string; gstTreatment: string; city?: string; stateCode?: string;
   isActive: boolean; portalEnabled: boolean;
-  currentOutstanding: string; heldInvoiceCount: number; invoiceCount: number;
+  currentOutstanding: string; heldInvoiceCount: number; invoiceCount: number; subscriptionCount: number;
   _count: { subscribers: number };
   portalUser?: { id: string; status: string } | null;
   billingAddress?: string; serviceAddress?: string; pincode?: string; openingBalance?: string;
@@ -143,7 +143,7 @@ export function CustomersPage() {
       {customers.isError && <div className="error">{errMessage(customers.error)}</div>}
       <table>
         <thead>
-          <tr><th>Code</th><th>Name</th><th>Status</th><th>Phone</th><th>GST</th><th title="Invoices with a remaining balance; paid and cancelled invoices excluded">Due invoices</th><th style={{ textAlign: "right" }}>Balance to pay</th><th>Subs</th><th>Portal</th><th /></tr>
+          <tr><th>Code</th><th>Name</th><th>Status</th><th>Phone</th><th>GST</th><th title="Invoices with a remaining balance; paid and cancelled invoices excluded">Due invoices</th><th style={{ textAlign: "right" }}>Balance to pay</th><th title="Subscription accounts excluding terminated subscriptions">Subscriptions</th><th>Portal</th><th /></tr>
         </thead>
         <tbody>
           {customers.data?.items.map((c) => (
@@ -158,7 +158,7 @@ export function CustomersPage() {
                 <span title="Remaining invoice amounts after payments and credit notes">₹{Number(c.currentOutstanding ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 {c.heldInvoiceCount > 0 && <span className="held-warning" role="img" aria-label={`${c.heldInvoiceCount} legacy invoices held; balance incomplete`} title={`${c.heldInvoiceCount} legacy invoices and related receipts held for correction; excluded from this balance. Review Settings → Legacy import.`}><ActionIcon name="warning" /></span>}
               </td>
-              <td>{c._count.subscribers}</td>
+              <td>{c.subscriptionCount ?? c._count.subscribers}</td>
               <td>
                 <span className={`badge ${c.portalEnabled ? "ok" : ""}`}>{c.portalEnabled ? "enabled" : "off"}</span>
               </td>
@@ -247,7 +247,7 @@ export function CustomersPage() {
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <label>Phone (if available)</label>
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            <label><input type="checkbox" checked={form.whatsappInvoiceEnabled} onChange={e=>setForm({...form,whatsappInvoiceEnabled:e.target.checked})}/>Send invoice PDFs on WhatsApp</label>
+            <label><input type="checkbox" checked={form.whatsappInvoiceEnabled} onChange={e=>setForm({...form,whatsappInvoiceEnabled:e.target.checked})}/>Send invoice and receipt PDFs on WhatsApp</label>
             {form.whatsappInvoiceEnabled&&<><label>WhatsApp number (optional if the customer phone uses WhatsApp)</label><input placeholder="+91 9876543210" value={form.whatsappPhone} onChange={e=>setForm({...form,whatsappPhone:e.target.value})}/><small>Delivery uses this customer's selected WhatsApp setup. Configure the tenant's WhatsApp service before automatic sending.</small></>}
             <label>Primary Email (needed for portal access)</label>
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

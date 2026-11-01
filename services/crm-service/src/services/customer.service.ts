@@ -22,7 +22,7 @@ export async function listCustomers(
   const ranked = await rankParties(tenantId, "CUSTOMER", q);
   const items = await prisma.customer.findMany({
       where: { tenantId, id: { in: ranked.items.map((item) => item.id) } },
-      include: { _count: { select: { subscribers: true } }, portalUser: { select: { id: true, status: true } } },
+      include: { _count: { select: { subscribers: { where: { status: { not: "TERMINATED" } } } } }, portalUser: { select: { id: true, status: true } } },
   });
   const byId = new Map(items.map((item) => [item.id, item]));
   // Held source invoices have no ledger postings. Flag their customers rather than
@@ -47,7 +47,7 @@ export async function listCustomers(
   }
   return { items: ranked.items.flatMap((rank) => {
     const item = byId.get(rank.id);
-      return item ? [{ ...item, portalEnabled: item.portalEnabled && item.portalUser?.status === "ACTIVE", invoiceCount: rank.invoiceCount,
+      return item ? [{ ...item, portalEnabled: item.portalEnabled && item.portalUser?.status === "ACTIVE", invoiceCount: rank.invoiceCount, subscriptionCount: rank.subscriptionCount,
       currentOutstanding: rank.outstanding.toFixed(2),
       ledgerOutstanding: rank.ledgerOutstanding.toFixed(2),
       heldInvoiceCount: heldByParty.get(item.id) ?? 0,

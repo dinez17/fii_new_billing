@@ -124,7 +124,7 @@ export async function listPayments(tenantId: string, q: z.infer<typeof paymentLi
       take: q.limit,
       orderBy: { paymentDate: "desc" },
       include: {
-        customer: { select: { id: true, name: true, phone: true } },
+        customer: { select: { id: true, name: true, phone: true, whatsappInvoiceEnabled: true } },
         receipt: { select: { id: true, receiptNumber: true } },
         allocations: { include: { invoice: { select: { invoiceNumber: true } } } },
       },

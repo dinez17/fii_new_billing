@@ -6,7 +6,7 @@
  *   payment.success     → PAYMENT_RECEIVED
  *   payment.failed      → PAYMENT_FAILED
  */
-import { prisma,queueInvoiceWhatsapp } from "@fii/database";
+import { prisma,queueReceiptNotification,queueInvoiceWhatsapp } from "@fii/database";
 import { createLogger, startOpsServer, customerMailRecipients, normalizeWhatsappPhone } from "@fii/common";
 import { TOPICS, runConsumer, type EventEnvelope } from "@fii/kafka";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
@@ -96,6 +96,9 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         refId: p.paymentId,
         attachments,
       });
+      const receipt=await prisma.receipt.findFirst({where:{tenantId,paymentId:p.paymentId},include:{payment:{include:{customer:true}}}});
+      const phone=normalizeWhatsappPhone(receipt?.payment.customer.whatsappPhone||receipt?.payment.customer.phone);
+      if(receipt&&receipt.payment.status==="SUCCESS"&&receipt.payment.customer.whatsappInvoiceEnabled&&phone)await queueReceiptNotification(tenantId,receipt.id,{channel:"WHATSAPP",to:"+"+phone});
       break;
     }
     case TOPICS.PAYMENT_FAILED: {
@@ -184,7 +187,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
 }
 
 async function main() {
-  const stop = await runConsumer({
+  const queueOnly = process.env.NOTIFICATION_QUEUE_ONLY === "true";
+  const stop = queueOnly ? async () => {} : await runConsumer({
     groupId: "notification-worker",
     topics: [
       TOPICS.NOTIFICATION_SEND, TOPICS.INVOICE_CREATED, TOPICS.PAYMENT_SUCCESS, TOPICS.PAYMENT_FAILED,
@@ -192,7 +196,7 @@ async function main() {
     ],
     handler: handle,
   });
-  log.info("notification-worker consuming");
+  log.info(queueOnly ? "notification-worker delivering queued requests only (event consumption disabled)" : "notification-worker consuming");
   let retrying = false;
   const timer = setInterval(() => {
     if (retrying) return;

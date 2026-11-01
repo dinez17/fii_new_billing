@@ -5,7 +5,7 @@ export interface PartyListQuery {
   page: number; limit: number; search?: string;
   activity?: "all" | "active" | "inactive";
   balance?: "all" | "due" | "settled" | "credit";
-  sortBy?: "name" | "code" | "invoiceCount" | "outstanding" | "createdAt" | "status";
+  sortBy?: "name" | "code" | "invoiceCount" | "outstanding" | "createdAt" | "status" | "subscriptionCount";
   order?: "asc" | "desc";
 }
 
@@ -24,9 +24,11 @@ export async function rankParties(tenantId: string, type: "CUSTOMER" | "SUPPLIER
   const cte = Prisma.sql`WITH ranked AS (
     SELECT p.id, p.name, p.code, p."createdAt", p."isActive",
       COALESCE(i.count, 0)::int AS "invoiceCount",
+      ${customer ? Prisma.sql`COALESCE(s.count, 0)::int` : Prisma.sql`0::int`} AS "subscriptionCount",
       ${customer ? Prisma.sql`p."openingBalance" + COALESCE(i.due, 0) - COALESCE(u.credit, 0)` : Prisma.sql`p."openingBalance" + ${credit} - ${debit}`} AS outstanding,
       p."openingBalance" + ${customer ? debit : credit} - ${customer ? credit : debit} AS "ledgerOutstanding"
     FROM ${party} p
+    ${customer ? Prisma.sql`LEFT JOIN (SELECT "customerId", COUNT(*) AS count FROM "Subscriber" WHERE "tenantId" = ${tenantId} AND status <> 'TERMINATED' GROUP BY "customerId") s ON s."customerId" = p.id` : Prisma.empty}
     LEFT JOIN (SELECT ${partyKey} AS id, COUNT(*) AS count, SUM(${remaining}) AS due FROM ${invoices}
       WHERE "tenantId" = ${tenantId}
       ${customer ? Prisma.sql`AND status <> 'CANCELLED' AND ${remaining} > 0` : Prisma.empty}
@@ -46,15 +48,15 @@ export async function rankParties(tenantId: string, type: "CUSTOMER" | "SUPPLIER
   ), filtered AS (SELECT * FROM ranked WHERE TRUE
     ${query.balance === "due" ? Prisma.sql`AND outstanding > 0` : query.balance === "credit" ? Prisma.sql`AND outstanding < 0` : query.balance === "settled" ? Prisma.sql`AND outstanding = 0` : Prisma.empty}
   )`;
-  const columns = { name: 'name', code: 'code', invoiceCount: '"invoiceCount"', outstanding: 'outstanding', createdAt: '"createdAt"', status: '"isActive"' };
-  const sortBy = query.sortBy ?? (customer ? "createdAt" : "name");
+  const columns = { name: 'name', code: 'code', invoiceCount: '"invoiceCount"', outstanding: 'outstanding', createdAt: '"createdAt"', status: '"isActive"', subscriptionCount: '"subscriptionCount"' };
+  const sortBy = query.sortBy ?? (customer ? "subscriptionCount" : "name");
   if (!(sortBy in columns)) throw new Error("Invalid party sort column");
   const direction = query.order ?? (customer ? "desc" : "asc");
   if (direction !== "asc" && direction !== "desc") throw new Error("Invalid party sort direction");
   const [items, counts] = await prisma.$transaction([
-    prisma.$queryRaw<Array<{ id: string; invoiceCount: number; outstanding: Prisma.Decimal; ledgerOutstanding: Prisma.Decimal }>>`${cte}
-      SELECT id, "invoiceCount", outstanding, "ledgerOutstanding" FROM filtered
-      ORDER BY ${Prisma.raw(columns[sortBy])} ${Prisma.raw(direction)}, name ASC, id ASC
+    prisma.$queryRaw<Array<{ id: string; invoiceCount: number; subscriptionCount: number; outstanding: Prisma.Decimal; ledgerOutstanding: Prisma.Decimal }>>`${cte}
+      SELECT id, "invoiceCount", "subscriptionCount", outstanding, "ledgerOutstanding" FROM filtered
+      ORDER BY ${Prisma.raw(columns[sortBy])} ${Prisma.raw(direction)}, ${sortBy === "subscriptionCount" ? Prisma.sql`outstanding DESC,` : Prisma.empty} name ASC, id ASC
       LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`,
     prisma.$queryRaw<Array<{ total: number }>>`${cte} SELECT COUNT(*)::int AS total FROM filtered`,
   ], { isolationLevel: "RepeatableRead" });

@@ -1,3 +1,5 @@
+import {z} from "zod";
+import {sendReceipt} from "./services/receipt-delivery.js";
 import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
@@ -62,6 +64,13 @@ receiptsRouter.get("/:id/pdf", authorize("receipt:read"), h(async (req, res) => 
     res.setHeader("Content-Disposition", `inline; filename="${r.receiptNumber.replace(/\//g, "-")}.pdf"`);
   });
 }));
+
+for(const [action,channel]of [["email","EMAIL"],["whatsapp","WHATSAPP"]] as const){
+ receiptsRouter.post(`/:id/${action}`,authorize("receipt:read"),h(async(req,res)=>{
+  const body=parse(z.object({requestId:z.string().uuid()}),req.body);
+  res.status(202).json(await sendReceipt(req.auth!.tenantId,req.auth!.sub,req.params.id,channel,body.requestId));
+ }));
+}
 
 app.use("/api/v1/payments", paymentsRouter);
 app.use("/api/v1/receipts", receiptsRouter);

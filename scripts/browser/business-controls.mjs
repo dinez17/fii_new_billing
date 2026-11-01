@@ -29,7 +29,7 @@ try {
   for (const width of [390,1280]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
-    let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody;
+    let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody, receiptEmailBody, receiptWhatsappBody, customerSort;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
       let data = { items:[], total:0, limit:20 };
@@ -44,9 +44,12 @@ try {
       if (path === "/settings/branding") data = {name:"Test Company",logoUrl:null};
       if (path === "/financial-years") data = years;
       if (path === "/billing-runs/preview") data = { items:[{ subscriberId:"sub",code:"SUB-001",customer:"Sample Customer",chargeGst:true,periodStart:"2027-01-01",periodEnd:"2027-03-31",amount:"354.00",eligible:true,reason:"Ready to invoice" }],total:1,page:1,limit:20 };
+      if(path === "/customers"){customerSort=url.searchParams.get("sortBy");data={items:[{id:"subscriber-buyer",code:"C-1",name:"Subscriber customer",isActive:true,gstTreatment:"B2C",invoiceCount:1,currentOutstanding:"100",heldInvoiceCount:0,subscriptionCount:2,_count:{subscribers:2},portalEnabled:false}],total:1};}
       if(path === "/subscribers")data={items:[{id:"subscriber",code:"SUB-001",subscriberType:"PREPAID",chargeGst:true,billingCycleMonths:1,status:"ACTIVE",activationDate:"2026-10-01",customer:{id:"customer",name:"Sample Customer",phone:"9000000000"},plans:[]}],total:1};
       if(path === "/subscribers/subscriber/schedules")data=[];
-      if (path === "/payments") data = {items:[{id:"payment",amount:"90",tdsAmount:"10",mode:"CASH",paymentDate:"2026-10-31",status:"SUCCESS",customer:{name:"Sample Customer"},receipt:{id:"receipt",receiptNumber:"R-001"},allocations:[]}],total:1,limit:20};
+      if (path === "/payments") data = {items:[{id:"payment",amount:"90",tdsAmount:"10",mode:"CASH",paymentDate:"2026-10-31",status:"SUCCESS",customer:{name:"Sample Customer",whatsappInvoiceEnabled:true},receipt:{id:"receipt",receiptNumber:"R-001"},allocations:[]}],total:1,limit:20};
+      if(path === "/receipts/receipt/email"){receiptEmailBody=request.postDataJSON();data={queued:true};}
+      if(path === "/receipts/receipt/whatsapp"){receiptWhatsappBody=request.postDataJSON();data={queued:true};}
       if (path === "/payments/payment/reverse") { reverseBody = request.postDataJSON(); data = {reversed:true}; }
       if (path === "/financial-controls/accounts") data = accountRows;
       if (path === "/financial-controls/journals" && request.method() === "POST") { journalBody = request.postDataJSON(); data = {id:"journal"}; }
@@ -78,6 +81,10 @@ try {
     assert.equal(await serviceDialog.getByLabel("Edit subscriber type",{exact:true}).count(),0);
     await serviceDialog.getByRole("button",{name:"Close",exact:true}).click();checks++;
     await page.goto(`${base}/payments`);
+    await page.getByRole("button",{name:"Email receipt",exact:true}).waitFor();
+    const receiptDialog=dialog=>dialog.accept();page.on("dialog",receiptDialog);
+    await page.getByRole("button",{name:"Email receipt",exact:true}).click();await page.waitForFunction(()=>true);await page.waitForTimeout(100);assert.match(receiptEmailBody.requestId,/^[0-9a-f-]{36}$/i);
+    await page.getByRole("button",{name:"Send receipt on WhatsApp",exact:true}).click();await page.waitForTimeout(100);assert.match(receiptWhatsappBody.requestId,/^[0-9a-f-]{36}$/i);page.off("dialog",receiptDialog);checks+=2;
     await page.getByRole("button",{name:"Reverse",exact:true}).click();
     const reversal = page.getByRole("dialog");
     assert(await reversal.getByRole("button",{name:"Confirm reversal"}).isDisabled());
@@ -117,6 +124,10 @@ try {
     await conversion.getByRole("button",{name:"Convert",exact:true}).click();
     await page.waitForURL("**/proformas/converted/edit");
     assert.equal(conversionBody.target,"PROFORMA");assert.equal(conversionBody.chargeGst,false);assert.equal(conversionBody.version,7);checks++;
+    await page.goto(`${base}/customers`);
+    await page.getByText("Subscriber customer",{exact:true}).waitFor();
+    assert.equal(customerSort,"subscriptionCount");await page.getByRole("columnheader",{name:"Subscriptions",exact:true}).waitFor();
+    assert.equal(await page.getByLabel("Sort by",{exact:true}).inputValue(),"subscriptionCount");checks++;
     await page.goto(`${base}/settings`);
     await page.getByRole("button",{name:"WhatsApp",exact:true}).click();
     await page.getByRole("checkbox",{name:"Enable WhatsApp"}).check();
