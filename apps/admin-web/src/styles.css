@@ -253,3 +253,5 @@ td code { white-space: nowrap; }
   .content { max-width: 100%; }
 }
 @media print { .mobile-nav-heading, .sidebar-backdrop { display: none !important; } }
+
+.subscriber-type-line{display:block;margin-bottom:5px}.subscriber-plan-line{display:block;padding:3px 0 7px}.subscriber-billing-lines{display:flex;flex-direction:column;gap:4px;white-space:nowrap;font-size:12px}.document-delivery-actions{display:inline-flex;gap:4px;align-items:center;vertical-align:middle;margin-right:4px}

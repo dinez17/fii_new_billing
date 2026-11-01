@@ -667,6 +667,9 @@ importers:
       '@fii/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
+      '@fii/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       express:
         specifier: ^4.21.2
         version: 4.22.2

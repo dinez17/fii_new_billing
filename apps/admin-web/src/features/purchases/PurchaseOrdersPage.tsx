@@ -1,3 +1,4 @@
+import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
@@ -111,7 +112,7 @@ export function PurchaseOrdersPage() {
               <td>{p.expectedDate ? formatDate(p.expectedDate) : "—"}</td>
               <td>{inr(p.total)}</td>
               <td>{statusBadge(p.status)}</td>
-              <td><IconButton className="small" onClick={() => { setDetailId(p.id); setReceiving(false); setError(""); }} icon="view" label="View">View</IconButton></td>
+              <td><DocumentDeliveryActions base="/purchase-orders" id={p.id} label="purchase order" number={p.poNumber} status={p.status}/><IconButton className="small" onClick={() => { setDetailId(p.id); setReceiving(false); setError(""); }} icon="view" label="View">View</IconButton></td>
             </tr>
           ))}
           {list.data?.items.length === 0 && (

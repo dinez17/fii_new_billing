@@ -1,3 +1,4 @@
+import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { formatDate } from "../../lib/date";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
 import { useEffect, useState } from "react";
@@ -91,7 +92,7 @@ export function PurchaseReturnsPage() {
 
       <table>
         <thead>
-          <tr><th>Return No</th><th>Date</th><th>Supplier</th><th>Against Bill</th><th style={{ textAlign: "right" }}>Taxable</th><th style={{ textAlign: "right" }}>GST</th><th style={{ textAlign: "right" }}>Total</th></tr>
+          <tr><th>Return No</th><th>Date</th><th>Supplier</th><th>Against Bill</th><th style={{ textAlign: "right" }}>Taxable</th><th style={{ textAlign: "right" }}>GST</th><th style={{ textAlign: "right" }}>Total</th><th>Actions</th></tr>
         </thead>
         <tbody>
           {list.data?.items.map((r) => (
@@ -102,11 +103,11 @@ export function PurchaseReturnsPage() {
               <td>{r.purchaseInvoice.ourNumber}</td>
               <td style={{ textAlign: "right" }}>{inr(r.taxableValue)}</td>
               <td style={{ textAlign: "right" }}>{inr(r.totalGst)}</td>
-              <td style={{ textAlign: "right", fontWeight: 600 }}>{inr(r.total)}</td>
+              <td style={{ textAlign: "right", fontWeight: 600 }}>{inr(r.total)}</td><td><DocumentDeliveryActions base="/purchase-returns" id={r.id} label="purchase return" number={r.returnNumber}/></td>
             </tr>
           ))}
           {list.data && list.data.items.length === 0 && (
-            <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No purchase returns yet.</td></tr>
+            <tr><td colSpan={8} style={{ color: "var(--muted)" }}>No purchase returns yet.</td></tr>
           )}
         </tbody>
       </table>

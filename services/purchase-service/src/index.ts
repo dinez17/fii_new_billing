@@ -1,3 +1,5 @@
+import {z} from "zod";
+import {buildBusinessDocumentPdfBuffer,queueBusinessDocument} from "@fii/pdf";
 import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
@@ -94,6 +96,16 @@ grns.use(authenticate);
 grns.post("/", authorize("grn:create"), h(async (req, res) => {
   res.status(201).json(await po.createGrn(req.auth!.tenantId, req.auth!.sub, parse(po.grnBody, req.body)));
 }));
+
+for(const [router,kind,permission]of [[purchaseOrders,"PURCHASE_ORDER","purchase_order:read"],[purchaseInvoices,"PURCHASE_INVOICE","purchase_invoice:read"],[purchaseReturns,"PURCHASE_RETURN","purchase_return:read"]] as const){
+ router.get("/:id/pdf",authorize(permission),h(async(req,res)=>{
+  const pdf=await buildBusinessDocumentPdfBuffer(req.auth!.tenantId,kind,req.params.id);
+  res.setHeader("Content-Type","application/pdf");res.setHeader("Cache-Control","no-store");res.setHeader("Content-Disposition",`inline; filename="${pdf.document.number.replace(/[^a-zA-Z0-9._-]/g,"-")}.pdf"`);res.send(pdf.buffer);
+ }));
+ for(const [action,channel]of [["email","EMAIL"],["whatsapp","WHATSAPP"]]as const)router.post(`/:id/${action}`,authorize(permission),h(async(req,res)=>{
+  const body=parse(z.object({requestId:z.string().uuid()}),req.body);res.status(202).json(await queueBusinessDocument(req.auth!.tenantId,req.auth!.sub,kind,req.params.id,channel,body.requestId));
+ }));
+}
 
 app.use("/api/v1/purchase-orders", purchaseOrders);
 app.use("/api/v1/grns", grns);

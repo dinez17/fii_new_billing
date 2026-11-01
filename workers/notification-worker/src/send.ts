@@ -1,7 +1,7 @@
 import {deliverWhatsappNotification} from "./whatsapp.js";
 import nodemailer, { type Transporter, type SendMailOptions } from "nodemailer";
-import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
-import { prisma } from "@fii/database";
+import { buildInvoicePdfBuffer, buildReceiptPdfBuffer, buildBusinessDocumentPdfBuffer, businessDocumentRecipient } from "@fii/pdf";
+import { prisma, BUSINESS_DOCUMENT_KINDS, type BusinessDocumentKind } from "@fii/database";
 import { createLogger, decryptSecret, companyMailCc } from "@fii/common";
 
 const log = createLogger("notification-worker");
@@ -122,6 +122,11 @@ export async function deliverNotification(id: string, suppliedAttachments?: Send
         const pdf = await buildReceiptPdfBuffer(row.tenantId, payment.receipt.id);
         attachments = [{ filename: `${payment.receipt.receiptNumber.replaceAll("/", "-")}.pdf`, content: pdf.buffer }];
       }
+    }
+    if(BUSINESS_DOCUMENT_KINDS.includes(row.refType as BusinessDocumentKind)&&row.refId){
+      const pdf=await buildBusinessDocumentPdfBuffer(row.tenantId,row.refType as BusinessDocumentKind,row.refId);
+      if(businessDocumentRecipient(pdf.document,"EMAIL")!==row.to)throw new Error("Document contact changed; queue a new message for the current recipient");
+      attachments=[{filename:pdf.document.number.replace(/[\\/]/g,"-")+".pdf",content:pdf.buffer}];
     }
     const smtp = sender ? { from: "test@example.test", t: { sendMail: sender } } : await getTransport(row.tenantId);
     if (!smtp) throw new Error("SMTP not configured/enabled");

@@ -1,3 +1,5 @@
+import {z} from "zod";
+import {queueBusinessDocument} from "@fii/pdf";
 import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
@@ -87,6 +89,9 @@ function noteRouter(kind: notes.NoteKind, module: string): Router {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${note.noteNumber.replace(/\//g, "-")}.pdf"`);
     });
+  }));
+  for(const [action,channel]of [["email","EMAIL"],["whatsapp","WHATSAPP"]]as const)r.post(`/:id/${action}`,authorize(`${module}:read`),h(async(req,res)=>{
+    const body=parse(z.object({requestId:z.string().uuid()}),req.body);res.status(202).json(await queueBusinessDocument(req.auth!.tenantId,req.auth!.sub,kind==="credit"?"CREDIT_NOTE":"DEBIT_NOTE",req.params.id,channel,body.requestId));
   }));
   r.post("/:id/cancel", authorize(`${module}:update`), h(async (req, res) => {
     res.json(await notes.cancelNote(req.auth!.tenantId, kind, req.params.id, req.auth!.sub));

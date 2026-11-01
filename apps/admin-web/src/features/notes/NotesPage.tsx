@@ -1,3 +1,4 @@
+import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
@@ -181,7 +182,7 @@ export function NotesPage() {
               <td>{inr(n.total)}</td>
               <td><span className={`badge ${n.status === "ISSUED" ? "ok" : "warn"}`}>{n.status}</span></td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <IconButton className="small" onClick={() => setViewId(n.id)} icon="view" label="View">View</IconButton>{" "}
+                <DocumentDeliveryActions base={kind==="credit"?"/credit-notes":"/debit-notes"} id={n.id} label={kind==="credit"?"sales return / credit note":"debit note"} number={n.noteNumber} status={n.status} pdf={false}/><IconButton className="small" onClick={() => setViewId(n.id)} icon="view" label="View">View</IconButton>{" "}
                 <IconButton className="small" onClick={() => void openPdf(n)} icon="download" label="PDF">PDF</IconButton>{" "}
                 {hasPerm(`${module}:update`) && n.status !== "CANCELLED" && (
                   <IconButton className="small danger" onClick={() => void cancel(n)} icon="close" label="Cancel">Cancel</IconButton>

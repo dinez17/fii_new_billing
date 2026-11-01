@@ -1,3 +1,4 @@
+import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -74,7 +75,7 @@ export function SalesDocumentsPage({ kind }: { kind: DocumentKind }) {
         <td><div className="document-actions">
           {row.status === "OPEN" && hasPerm("invoice:update") && <IconButton label="Edit document" icon="edit" onClick={() => navigate(`${documentPath(kind)}/${row.id}/edit`)} />}
           <IconButton label="Print / preview PDF" icon="print" disabled={!!busy} onClick={() => void pdf(row, true)} />
-          <IconButton label="Download PDF" icon="download" disabled={!!busy} onClick={() => void pdf(row, false)} />
+          <DocumentDeliveryActions base="/sales-documents" id={row.id} label={kind==="QUOTATION"?"quotation":"proforma"} number={row.documentNumber} status={row.status} email={false} pdf={false}/><IconButton label="Download PDF" icon="download" disabled={!!busy} onClick={() => void pdf(row, false)} />
           {row.status !== "CANCELLED" && <IconButton label="Email document" icon="mail" disabled={!!busy} onClick={() => void run(row.id, async () => { const { data } = await api.post(`/sales-documents/${row.id}/email`); setNotice(`Email sent to ${data.to}`); })} />}
           {row.status === "OPEN" && hasPerm("invoice:create") && hasPerm("invoice:update") && <IconButton label="Convert document" icon="convert" onClick={() => setConversion({ row, target: "INVOICE", chargeGst: row.chargeGst, documentDate: today(), dueDate: today() })} />}
           {row.status === "OPEN" && hasPerm("invoice:update") && <IconButton label="Cancel document" icon="close" className="danger" onClick={() => { setCancelling(row); setReason(""); }} />}

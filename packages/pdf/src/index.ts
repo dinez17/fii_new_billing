@@ -4,3 +4,4 @@ export { streamReceiptPdf, buildReceiptPdfBuffer, type ReceiptWithRelations } fr
 export { streamNotePdf, buildNotePdfBuffer, type NoteWithRelations, type NotePdfKind } from "./note.js";
 export { streamPayslipPdf, buildPayslipPdfBuffer, payslipFileName, type PayslipWithRelations } from "./payslip.js";
 export { buildCustomerCafPdfBuffer, buildCafPdf, type CafData } from "./caf.js";
+export { buildBusinessDocumentPdfBuffer, queueBusinessDocument, businessDocumentRecipient } from "./business-document.js";

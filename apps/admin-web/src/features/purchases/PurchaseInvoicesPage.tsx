@@ -1,3 +1,4 @@
+import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
@@ -113,7 +114,7 @@ export function PurchaseInvoicesPage() {
               <td>{inr(pi.amountPaid)}</td>
               <td>{statusBadge(pi.status)}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <IconButton className="small" onClick={() => setDetailId(pi.id)} icon="view" label="View">View</IconButton>{" "}
+                <DocumentDeliveryActions base="/purchase-invoices" id={pi.id} label="purchase invoice" number={pi.ourNumber} status={pi.status}/><IconButton className="small" onClick={() => setDetailId(pi.id)} icon="view" label="View">View</IconButton>{" "}
                 {hasPerm("supplier_payment:create") && pi.status !== "PAID" && pi.status !== "CANCELLED" && (
                   <IconButton className="small" onClick={() => {
                     setPay({

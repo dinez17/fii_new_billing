@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authenticate, authorize } from "@fii/auth";
-import { buildSalesDocumentPdfBuffer } from "@fii/pdf";
+import { buildSalesDocumentPdfBuffer,queueBusinessDocument } from "@fii/pdf";
 import { h, parse } from "../http.js";
 import * as documents from "../services/sales-document.service.js";
 import { emailSalesDocument } from "../services/mail.service.js";
@@ -23,3 +23,7 @@ salesDocumentsRouter.get("/:id/pdf", authorize("invoice:read"), h(async (req, re
   res.setHeader("Content-Disposition", `inline; filename="${document.documentNumber.replace(/[^a-zA-Z0-9._-]/g, "-")}.pdf"`); res.send(buffer);
 }));
 salesDocumentsRouter.post("/:id/email", authorize("invoice:read"), h(async (req, res) => { res.json(await emailSalesDocument(req.auth!.tenantId, req.params.id)); }));
+
+salesDocumentsRouter.post("/:id/whatsapp",authorize("invoice:read"),h(async(req,res)=>{
+ const body=parse(z.object({requestId:z.string().uuid()}),req.body);res.status(202).json(await queueBusinessDocument(req.auth!.tenantId,req.auth!.sub,"SALES_DOCUMENT",req.params.id,"WHATSAPP",body.requestId));
+}));

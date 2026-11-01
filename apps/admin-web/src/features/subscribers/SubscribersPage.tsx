@@ -189,20 +189,20 @@ export function SubscribersPage() {
               <td><code>{s.code}</code>{s.poNumber && <div style={{ fontSize: 11, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={s.poNumber}>PO: {s.poNumber}</div>}</td>
               <td>{s.customer.name}<div style={{ color: "var(--muted)", fontSize: 12 }}>{s.customer.phone}</div></td>
               <td>
-                <span className="badge">{s.subscriberType}</span>{" "}
-                <span className="badge">{cycleLabel(s.billingCycleMonths)}</span>
+                <div className="subscriber-type-line"><span className="badge">{s.subscriberType}</span></div>
+                <div className="subscriber-type-line"><span className="badge">{cycleLabel(s.billingCycleMonths)}</span></div>
                 <div><span className="badge">{s.chargeGst ? "GST" : "Without GST"}</span></div>
               </td>
               <td style={{ fontSize: 13 }}>
                 {s.plans.length
                   ? s.plans.map((m) => (
-                      <div key={m.id}>{m.plan.name}{m.location && ` — ${m.location}`} <span style={{ color: "var(--muted)" }}>{inr(m.priceOverride ?? m.plan.price)}</span></div>
+                      <div key={m.id} className="subscriber-plan-line"><div>{m.plan.name}</div>{m.location && <div className="document-help">{m.location}</div>}<div className="document-help">{inr(m.priceOverride ?? m.plan.price)}</div></div>
                     ))
                   : <span style={{ color: "var(--danger)" }}>no plan</span>}
               </td>
               <td><span className={`badge ${s.status === "ACTIVE" ? "ok" : s.status === "TERMINATED" ? "warn" : ""}`}>{s.status}</span></td>
-              <td title={`Earliest active connection start. Subscriber activated ${formatDate(s.activationDate)}`}>{formatDate(connectionSince(s))}</td>
-              <td>{s.nextBilling ? <>{formatDate(s.nextBilling.invoiceDate)}<small>{formatDate(s.nextBilling.periodStart)} – {formatDate(s.nextBilling.periodEnd)}</small></> : "—"}</td>
+              <td style={{whiteSpace:"nowrap"}} title={`Earliest active connection start. Subscriber activated ${formatDate(s.activationDate)}`}>{formatDate(connectionSince(s))}</td>
+              <td>{s.nextBilling ? <div className="subscriber-billing-lines"><div>Bill date: {formatDate(s.nextBilling.invoiceDate)}</div><div>From: {formatDate(s.nextBilling.periodStart)}</div><div>To: {formatDate(s.nextBilling.periodEnd)}</div></div> : "—"}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 {hasPerm("subscriber:update") && s.status !== "TERMINATED" && (
                   <>

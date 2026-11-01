@@ -39,3 +39,11 @@ Without WAPI_SIMULATION_URL the same integration suite starts its local provider
 ## Local queue-only operation
 
 `NOTIFICATION_QUEUE_ONLY=true` starts the delivery scan and readiness endpoint without consuming Kafka domain events. This is used locally to deliver explicitly queued invoice/receipt actions without replaying historical event notifications. Production defaults to full event consumption. The notification worker must stay running for queued requests to leave the queue.
+
+## Other business documents
+
+Purchase orders, purchase invoices (recorded bill summaries), purchase returns, sales returns/credit notes and debit notes expose Email and WhatsApp PDF actions. Quotations and proformas retain their existing email action and now also have WhatsApp sending. Purchase documents also support PDF download. These actions use the saved document contact; no arbitrary recipient can be posted in the request.
+
+Customer WhatsApp preferences apply to customer documents. Supplier sends are explicit actions to the supplier's saved phone/email; they do not run automatically. SMTP messages copy the tenant company email. Queue requests use a UUID for deduplication and the send log records the result. Cancelled documents and changed recipients are blocked again at delivery time. Sending a PO does not change its workflow status, stock, ledger or number series. Draft POs are visibly labelled DRAFT. A purchase-invoice PDF is a summary of the recorded supplier bill, not a replacement for the supplier's original invoice.
+
+Permissions are the corresponding document's read permission. PDF generation and send jobs are tenant-scoped. No delivery jobs are created as part of deployment.
