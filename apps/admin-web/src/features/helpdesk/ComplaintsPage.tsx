@@ -118,18 +118,19 @@ function ListTab() {
 
   return (
     <>
+      <div className="page-heading"><h3>Complaint list</h3><div className="page-heading-actions">        {hasPerm("complaint:create") && (
+          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Complaint</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 240 }} placeholder="Search number / subject / customer…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 240 }} placeholder="Search number / subject / customer…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select style={{ width: 150 }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="">All status</option>
           {["OPEN", "ASSIGNED", "IN_PROGRESS", "ON_HOLD", "RESOLVED", "CLOSED"].map((s) => <option key={s}>{s}</option>)}
         </select>
         <div className="spacer" />
-        {hasPerm("complaint:create") && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Complaint</button>
-        )}
+
       </div>
 
       <table>

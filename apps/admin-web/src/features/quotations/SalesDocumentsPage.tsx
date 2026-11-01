@@ -1,3 +1,4 @@
+import { EntitySelect } from "../../components/EntitySelect";
 import {DocumentDeliveryActions} from "../../components/DocumentDeliveryActions";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,9 +14,9 @@ import { DateInput } from "../../components/DateInput";
 
 export type DocumentKind = "QUOTATION" | "PROFORMA";
 export interface SalesDocument {
-  id: string; kind: DocumentKind; documentNumber: string; customerId: string;
-  customer: { id: string; name: string; phone?: string }; documentDate: string; validUntil: string;
-  status: "OPEN" | "CONVERTED" | "CANCELLED"; version: number; chargeGst: boolean; grandTotal: string;
+  id: string; kind: DocumentKind; documentNumber: string; customerId: string | null; prospect?: {name:string;email:string;phone?:string;billingAddress?:string;stateCode?:string};
+  customer: { id: string; name: string; phone?: string } | null; documentDate: string; validUntil: string;
+  alternativePlans?: boolean; status: "OPEN" | "CONVERTED" | "CANCELLED"; version: number; chargeGst: boolean; grandTotal: string;
   poNumber?: string; subject?: string; notes?: string; terms?: string; cancelReason?: string;
   invoiceId?: string; invoice?: { invoiceNumber: string; status: string }; sourceDocumentId?: string; convertedDocumentId?: string;
   items: { productId?: string; description: string; hsnSac?: string; quantity: number; unitPrice: number; discount: number; gstRate: number }[];
@@ -33,7 +34,7 @@ export function SalesDocumentsPage({ kind }: { kind: DocumentKind }) {
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   const iframe = useRef<HTMLIFrameElement>(null);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
-  const [conversion, setConversion] = useState<{ row: SalesDocument; target: "PROFORMA" | "INVOICE"; chargeGst: boolean; documentDate: string; dueDate: string } | null>(null);
+  const [conversion, setConversion] = useState<{ row: SalesDocument; target: "PROFORMA" | "INVOICE"; chargeGst: boolean; documentDate: string; dueDate: string; selectedItemIndexes?:number[]; customerId?:string } | null>(null);
   const [cancelling, setCancelling] = useState<SalesDocument | null>(null), [reason, setReason] = useState("");
   const list = useQuery({ queryKey: ["sales-documents", kind, search, status, period.fyCode, period.from, period.to, page, pageSize], enabled: period.ready,
     queryFn: async () => (await api.get("/sales-documents", { params: { kind, search: search || undefined, status: status || undefined, ...period.params, page, limit: pageSize } })).data as { items: SalesDocument[]; total: number },
@@ -50,14 +51,14 @@ export function SalesDocumentsPage({ kind }: { kind: DocumentKind }) {
   function closePreview() { if (preview) URL.revokeObjectURL(preview.url); setPreview(null); }
   const title = kind === "QUOTATION" ? "Quotations" : "Proforma invoices";
   return <>
-    <h2 className="page-title">{title}</h2>
+    <div className="page-heading"><h2 className="page-title">{title}</h2><div className="page-heading-actions">{hasPerm("invoice:create") && <button className="primary" onClick={() => navigate(documentPath(kind) + "/new")}>+ New {kind === "QUOTATION" ? "quotation" : "proforma"}</button>}</div></div>
     <div className="toolbar">
       <RowsPerPage value={pageSize} onChange={setPageSize} />
-      <input aria-label="Search sales documents" placeholder="Number / customer / subject…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+      <div className="filter-search-row"><input aria-label="Search sales documents" placeholder="Number / customer / subject…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></div>
       <select aria-label="Document status" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="OPEN">Open</option><option value="">All statuses</option><option value="CONVERTED">Converted</option><option value="CANCELLED">Cancelled</option></select>
       <FinancialReportPeriod period={period} />
       <div className="spacer" />
-      {hasPerm("invoice:create") && <button className="primary" onClick={() => navigate(documentPath(kind) + "/new")}>+ New {kind === "QUOTATION" ? "quotation" : "proforma"}</button>}
+
     </div>
     <p className="document-help">These documents do not affect stock, outstanding balances or GST reports until converted to an invoice.</p>
     {(error || list.isError) && <div className="error" role="alert">{error || errMessage(list.error)}</div>}
@@ -66,8 +67,8 @@ export function SalesDocumentsPage({ kind }: { kind: DocumentKind }) {
     <table><thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>Valid until</th><th>Total</th><th>Status / conversion</th><th aria-label="Actions" /></tr></thead><tbody>
       {list.data?.items.map(row => <tr key={row.id}>
         <td><code>{row.documentNumber}</code><div><span className="badge">{row.chargeGst ? "GST" : "Without GST"}</span></div></td>
-        <td>{formatDate(row.documentDate)}</td><td>{row.customer.name}{row.subject && <div className="document-help">{row.subject}</div>}</td>
-        <td>{formatDate(row.validUntil)}</td><td>{inr(row.grandTotal)}</td><td><span className={`badge ${row.status === "CANCELLED" ? "warn" : row.status === "CONVERTED" ? "info" : "ok"}`}>{row.status}</span>
+        <td>{formatDate(row.documentDate)}</td><td>{row.customer?.name ?? row.prospect?.name}{!row.customerId && <div className="document-help">Prospect</div>}{row.subject && <div className="document-help">{row.subject}</div>}</td>
+        <td>{formatDate(row.validUntil)}</td><td>{row.alternativePlans ? "Plan options" : inr(row.grandTotal)}</td><td><span className={`badge ${row.status === "CANCELLED" ? "warn" : row.status === "CONVERTED" ? "info" : "ok"}`}>{row.status}</span>
           {row.invoiceId && <button className="small" onClick={() => navigate(`/invoices/${row.invoiceId}/edit`)}>{row.invoice?.invoiceNumber || "Open invoice"}</button>}
           {row.convertedDocumentId && <button className="small" onClick={() => navigate(`/proformas/${row.convertedDocumentId}/edit`)}>Open proforma</button>}
           {row.cancelReason && <div className="document-help">{row.cancelReason}</div>}
@@ -85,17 +86,18 @@ export function SalesDocumentsPage({ kind }: { kind: DocumentKind }) {
     </tbody></table>
     <ListPager page={page} limit={pageSize} total={list.data?.total ?? 0} onChange={setPage} />
     {conversion && <div className="modal-overlay"><form className="modal" role="dialog" aria-modal="true" aria-label="Convert document" onSubmit={e => { e.preventDefault(); void run(conversion.row.id, async () => {
-      const { data } = await api.post<{ id: string; kind: "PROFORMA" | "INVOICE"; number: string }>(`/sales-documents/${conversion.row.id}/convert`, { target: conversion.target, chargeGst: conversion.chargeGst, documentDate: conversion.documentDate, dueDate: conversion.dueDate, version: conversion.row.version });
+      const { data } = await api.post<{ id: string; kind: "PROFORMA" | "INVOICE"; number: string }>(`/sales-documents/${conversion.row.id}/convert`, { target: conversion.target, chargeGst: conversion.chargeGst, documentDate: conversion.documentDate, dueDate: conversion.dueDate, version: conversion.row.version, customerId: conversion.customerId || undefined, selectedItemIndexes: conversion.selectedItemIndexes });
       await qc.invalidateQueries({ queryKey: ["sales-documents"] }); await qc.invalidateQueries({ queryKey: ["invoices"] }); setConversion(null);
       navigate(data.kind === "INVOICE" ? `/invoices/${data.id}/edit` : `/proformas/${data.id}/edit`);
     }); }}>
       <h3>Convert {conversion.row.documentNumber}</h3>
+      {conversion.row.alternativePlans && <fieldset><legend>Accepted plan options</legend>{conversion.row.items.map((item,index)=><label key={index}><input type="checkbox" checked={conversion.selectedItemIndexes?.includes(index)??false} onChange={e=>setConversion({...conversion,selectedItemIndexes:e.target.checked?[...(conversion.selectedItemIndexes??[]),index]:(conversion.selectedItemIndexes??[]).filter(i=>i!==index)})}/>{item.description} — {inr(item.unitPrice)}</label>)}<p>Select only the option accepted by the customer.</p></fieldset>}
       <label>Convert to<select value={conversion.target} onChange={e => setConversion({ ...conversion, target: e.target.value as "PROFORMA" | "INVOICE" })}><option value="INVOICE">Invoice</option>{conversion.row.kind === "QUOTATION" && <option value="PROFORMA">Proforma invoice</option>}</select></label>
-      <label>Tax treatment<select value={conversion.chargeGst ? "GST" : "WITHOUT_GST"} onChange={e => setConversion({ ...conversion, chargeGst: e.target.value === "GST" })}><option value="GST">With GST</option><option value="WITHOUT_GST">Without GST</option></select></label>
+      <>{!conversion.row.customerId && <label>Confirmed customer (required for invoice)<EntitySelect kind="customers" activeOnly value={conversion.customerId || ""} onChange={customerId => setConversion({...conversion, customerId})}/><span className="document-help">Create the customer profile in Customers after confirmation, then select it here.</span></label>}</><label>Tax treatment<select value={conversion.chargeGst ? "GST" : "WITHOUT_GST"} onChange={e => setConversion({ ...conversion, chargeGst: e.target.value === "GST" })}><option value="GST">With GST</option><option value="WITHOUT_GST">Without GST</option></select></label>
       <div className="document-grid"><label>Document date<DateInput required aria-label="Conversion document date" value={conversion.documentDate} onChange={e => setConversion({ ...conversion, documentDate: e.target.value })} /></label><label>{conversion.target === "INVOICE" ? "Due date" : "Valid until"}<DateInput required aria-label="Conversion due date" value={conversion.dueDate} onChange={e => setConversion({ ...conversion, dueDate: e.target.value })} /></label></div>
       <p className="document-help">{conversion.target === "INVOICE" ? "Creates one invoice in the selected register and posts its stock and accounting entries. Invoice notifications follow your tenant settings." : "Creates a separate proforma number. No stock or accounting entry is posted."}</p>
       {error && <div className="error" role="alert">{error}</div>}
-      <div className="actions"><button type="button" disabled={!!busy} onClick={() => setConversion(null)}>Close</button><button className="primary" disabled={!!busy}>{busy ? "Converting…" : "Convert"}</button></div>
+      <div className="actions"><button type="button" disabled={!!busy} onClick={() => setConversion(null)}>Close</button><button className="primary" disabled={!!busy || (!!conversion.row.alternativePlans && !conversion.selectedItemIndexes?.length) || (conversion.target === "INVOICE" && !conversion.row.customerId && !conversion.customerId)}>{busy ? "Converting…" : "Convert"}</button></div>
     </form></div>}
     {cancelling && <div className="modal-overlay"><form className="modal" role="dialog" aria-modal="true" aria-label="Cancel document" onSubmit={e => { e.preventDefault(); void run(cancelling.id, async () => { await api.post(`/sales-documents/${cancelling.id}/cancel`, { version: cancelling.version, reason }); setCancelling(null); await qc.invalidateQueries({ queryKey: ["sales-documents"] }); }); }}>
       <h3>Cancel {cancelling.documentNumber}</h3><label>Reason<textarea required minLength={3} maxLength={300} value={reason} onChange={e => setReason(e.target.value)} /></label>

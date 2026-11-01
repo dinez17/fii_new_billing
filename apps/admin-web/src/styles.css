@@ -255,3 +255,19 @@ td code { white-space: nowrap; }
 @media print { .mobile-nav-heading, .sidebar-backdrop { display: none !important; } }
 
 .subscriber-type-line{display:block;margin-bottom:5px}.subscriber-plan-line{display:block;padding:3px 0 7px}.subscriber-billing-lines{display:flex;flex-direction:column;gap:4px;white-space:nowrap;font-size:12px}.document-delivery-actions{display:inline-flex;gap:4px;align-items:center;vertical-align:middle;margin-right:4px}
+
+/* List controls: headings own creation actions; search gets its own final row. */
+.page-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; flex-wrap:wrap; }
+.page-heading .page-title { margin:0; }
+.page-heading-actions { display:flex; gap:8px; margin-left:auto; align-items:center; }
+.toolbar:has(> .filter-search-row) { flex-wrap:wrap; }
+.filter-search-row { order:100; flex:0 0 100%; min-width:0; }
+.filter-search-row > input { width:min(100%,480px) !important; max-width:100%; }
+@media(max-width:600px) { .page-heading-actions button { white-space:normal; } .filter-search-row > input { width:100% !important; } }
+
+.subscriber-editor-page {width:100%;min-width:0;}
+.subscriber-editor {width:100%;max-width:1100px;margin:0 auto;box-sizing:border-box;}
+.subscriber-editor > input,.subscriber-editor > select {max-width:100%;}
+
+.subscriber-connection-grid {display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr) auto;gap:8px;align-items:center;margin-bottom:8px;}
+@media(max-width:600px){.subscriber-connection-grid{grid-template-columns:minmax(0,1fr);}}

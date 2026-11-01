@@ -5,3 +5,7 @@
 .pwa-offline { max-width: 300px; }
 body[data-mobile-nav] .pwa-tools { display: none; }
 @media print { .pwa-tools { display: none !important; } }
+
+.pwa-tools {padding:0;background:transparent;border:0;box-shadow:none;}
+.pwa-tools .pwa-install-icon {width:40px;min-width:40px;height:40px;min-height:40px;padding:10px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 3px 12px #18334d33;}
+.pwa-offline {background:white;border:1px solid #d5dbe4;border-radius:8px;padding:8px 12px;}

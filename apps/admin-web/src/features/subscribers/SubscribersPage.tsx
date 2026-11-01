@@ -1,8 +1,10 @@
+import { useNavigate, useLocation, useParams } from "react-router-dom";
+import { subscriptionStartDefault } from "../../lib/date";
 import {SubscriberSchedules} from "./SubscriberSchedules";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
@@ -32,7 +34,7 @@ interface CreateForm {
 }
 const EMPTY: CreateForm = {
   customerId: "", subscriberType: "PREPAID", billingCycleMonths: "1", chargeGst: true, planSel: [],
-  activationDate: new Date().toISOString().slice(0, 10), poNumber: "",
+  activationDate: subscriptionStartDefault(), poNumber: "",
 };
 
 const CYCLES: Array<[string, string]> = [
@@ -46,38 +48,38 @@ const connectionSince = (subscriber: SubRow) => subscriber.plans.length
 const inr = (v: unknown) => `₹${Number(v).toFixed(0)}`;
 
 export function SubscribersPage() {
+  const navigate=useNavigate(), location=useLocation(), {id:editId}=useParams();
+  const newPage=location.pathname.endsWith("/new"), editorPage=newPage||!!editId;
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ACTIVE");
-  const [planSearch, setPlanSearch] = useState("");
   const [type, setType] = useState("");
-  const [form, setForm] = useState<CreateForm | null>(null);
+  const [form, setForm] = useState<CreateForm | null>(()=>newPage?{...EMPTY,activationDate:subscriptionStartDefault()}:null);
   const [manageFor, setManageFor] = useState<SubRow | null>(null);
   const [serviceFor, setServiceFor] = useState<SubRow | null>(null);
   const [poDraft, setPoDraft] = useState("");
-  const [addPlan, setAddPlan] = useState({ planId: "", startDate: new Date().toISOString().slice(0, 10), override: "", location: "" });
+  const [addPlan, setAddPlan] = useState({ planId: "", startDate: subscriptionStartDefault(), override: "", location: "" });
   const [impact,setImpact]=useState<{mapping:Mapping;body:object;data:{oldCycle:number;newCycle:number;message:string}}|null>(null);
   const [connectionDrafts, setConnectionDrafts] = useState<Record<string, ConnectionDraft>>({});
   const [savingConnection, setSavingConnection] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const editor=useQuery({queryKey:["subscriber-editor",editId],enabled:!!editId,queryFn:async()=>(await api.get(`/subscribers/${editId}`)).data as SubRow});
+  useEffect(()=>{if(newPage){setForm({...EMPTY,activationDate:subscriptionStartDefault()});setManageFor(null);}else if(editId){setForm(null);}else{setForm(null);setManageFor(null);}setError("");},[newPage,editId]);
+  useEffect(()=>{if(editId&&editor.data){setManageFor({...editor.data,plans:editor.data.plans.filter(p=>!(p as Mapping & {endDate?:string}).endDate)});setPoDraft(editor.data.poNumber??"");}},[editId,editor.data]);
+  const closeEditor=()=>{setForm(null);setManageFor(null);navigate("/subscribers");};
 
   const subs = useQuery({
     queryKey: ["subscribers", page, search, status, type, pageSize],
+    enabled: !editorPage,
     queryFn: async () => (await api.get("/subscribers", {
       params: {
         page, limit: pageSize, search: search || undefined,
         status: status || undefined, subscriberType: type || undefined,
       },
     })).data as { items: SubRow[]; total: number; limit: number },
-  });
-
-  const plans = useQuery({
-    queryKey: ["plans-active"],
-    queryFn: async () => (await api.get("/plans")).data as PlanLite[],
-    enabled: !!form || !!manageFor,
   });
 
   const create = useMutation({
@@ -92,7 +94,7 @@ export function SubscribersPage() {
         plans: f.planSel.map((v) => ({ planId: v.planId, location: v.location, priceOverride: v.override ? Number(v.override) : undefined })),
       });
     },
-    onSuccess: () => { setForm(null); setError(""); qc.invalidateQueries({ queryKey: ["subscribers"] }); },
+    onSuccess: () => { closeEditor(); setError(""); qc.invalidateQueries({ queryKey: ["subscribers"] }); },
     onError: (err) => setError(errMessage(err)),
   });
 
@@ -157,16 +159,18 @@ export function SubscribersPage() {
   }
 
   // plans serve both prepaid and postpaid
-  const allPlans = () => plans.data ?? [];
   const selectedCount = form?.planSel.length ?? 0;
 
   return (
     <>
-      <h2 className="page-title">Subscribers</h2>
+      {!editorPage && <>
+      <div className="page-heading"><h2 className="page-title">Subscribers</h2><div className="page-heading-actions">{hasPerm("subscriber:create") && (
+          <button className="primary" onClick={() => { navigate("/subscribers/new"); setError(""); }}>+ New Subscriber</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 240 }} placeholder="Search code / name / phone…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 240 }} placeholder="Search code / name / phone…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select style={{ width: 140 }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="">All status</option><option>ACTIVE</option><option>SUSPENDED</option><option>TERMINATED</option>
         </select>
@@ -174,9 +178,7 @@ export function SubscribersPage() {
           <option value="">All types</option><option>PREPAID</option><option>POSTPAID</option>
         </select>
         <div className="spacer" />
-        {hasPerm("subscriber:create") && (
-          <button className="primary" onClick={() => { setForm({ ...EMPTY, activationDate: new Date().toISOString().slice(0, 10) }); setPlanSearch(""); setError(""); }}>+ New Subscriber</button>
-        )}
+
       </div>
 
       <table>
@@ -206,7 +208,7 @@ export function SubscribersPage() {
               <td style={{ whiteSpace: "nowrap" }}>
                 {hasPerm("subscriber:update") && s.status !== "TERMINATED" && (
                   <>
-                    <IconButton className="small" onClick={() => { setManageFor(s); setPoDraft(s.poNumber ?? ""); setError(""); }} icon="edit" label="Manage subscriber / PO number">Manage</IconButton>{" "}
+                    <IconButton className="small" onClick={() => { navigate(`/subscribers/${s.id}/edit`); }} icon="edit" label="Manage subscriber / PO number">Manage</IconButton>{" "}
                     <IconButton className="small" icon="calendar" label="Service changes" onClick={() => setServiceFor(s)} />{" "}
                     {s.status === "ACTIVE"
                       ? <IconButton className="small" onClick={() => void action(s, "suspend")} icon="pause" label="Suspend">Suspend</IconButton>
@@ -231,9 +233,13 @@ export function SubscribersPage() {
         </div>
       )}
 
+      </>}
+      {editorPage && <div className="page-heading"><h2 className="page-title">{newPage?"New subscriber":"Edit subscriber"}</h2><button onClick={closeEditor}>← Back to subscribers</button></div>}
+      {editor.isError && <div className="error">{errMessage(editor.error)}</div>}
+      {editId && editor.isPending && <p>Loading subscriber…</p>}
       {form && (
-        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setForm(null)}>
-          <div className="modal compact-modal" style={{ width: 640 }} onClick={(e) => e.stopPropagation()}>
+        <div className="subscriber-editor-page">
+          <section className="card subscriber-editor" aria-label="Create subscriber">
             <h3>New subscriber</h3>
             <label>Customer * (active customers only)</label>
             <EntitySelect kind="customers" activeOnly placeholder="Search active customers…" value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} />
@@ -260,20 +266,17 @@ export function SubscribersPage() {
             </div>
 
             <label>Plans / connections * (add the same plan for each location)</label>
-            <input aria-label="Search plans to subscribe" placeholder="Search plan name / code…" value={planSearch} onChange={(e) => setPlanSearch(e.target.value)} />
-            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, maxHeight: 150, overflowY: "auto" }}>
-              {allPlans().filter((p) => `${p.name} ${p.code}`.toLowerCase().includes(planSearch.toLowerCase())).map((p) => (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px" }}>
-                  <span style={{ flex: 1 }}>{p.name} <small>{inr(p.price)}/mo</small></span>
-                  <button type="button" className="small" disabled={selectedCount >= 50} onClick={() => setForm({ ...form, planSel: [...form.planSel, { key: crypto.randomUUID(), planId: p.id, override: "", location: "" }] })}>+ Add</button>
-                </div>
-              ))}
-              {allPlans().length === 0 && <small>No plans yet — create one under Plans.</small>}
+            <label>Location / connection (optional)<input aria-label="New subscription connection location" maxLength={100} placeholder="Location / connection (optional)" value={addPlan.location} onChange={e=>setAddPlan({...addPlan,location:e.target.value})}/></label>
+            <div className="subscriber-connection-grid">
+              <EntitySelect kind="plans" value={addPlan.planId} placeholder="Search plan name / code…" onChange={planId=>setAddPlan({...addPlan,planId})}/>
+              <input aria-label="New subscription connection price" type="number" min="0.01" step="0.01" placeholder="Override ₹/mo (optional)" value={addPlan.override} onChange={e=>setAddPlan({...addPlan,override:e.target.value})}/>
+              <button type="button" disabled={!addPlan.planId || selectedCount>=50 || (!!addPlan.override && (!Number.isFinite(Number(addPlan.override)) || Number(addPlan.override)<=0))} onClick={()=>{setForm({...form,planSel:[...form.planSel,{key:crypto.randomUUID(),planId:addPlan.planId,override:addPlan.override,location:addPlan.location}]});setAddPlan({...addPlan,planId:"",override:"",location:""});}}>Add plan</button>
             </div>
+            <small>Select a plan and add a connection. The same plan can be added for multiple locations; blank override uses the plan price.</small>
             <div style={{ maxHeight: 230, overflowY: "auto" }}>
               {form.planSel.map((sel, index) => (
                 <div key={sel.key} style={{ borderBottom: "1px solid var(--border)", padding: "6px 0" }}>
-                  <small>{index + 1}. {allPlans().find((p) => p.id === sel.planId)?.name}</small>
+                  <label>Connection {index + 1}<EntitySelect kind="plans" value={sel.planId} placeholder={`Plan for connection ${index + 1}`} onChange={planId=>setForm({...form,planSel:form.planSel.map(row=>row.key===sel.key?{...row,planId}:row)})}/></label>
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 6 }}>
                     <input aria-label={`Connection ${index + 1} location (optional)`} maxLength={100} placeholder="Location / connection (optional)" value={sel.location} onChange={(e) => setForm({ ...form, planSel: form.planSel.map((row) => row.key === sel.key ? { ...row, location: e.target.value } : row) })} />
                     <input aria-label={`Connection ${index + 1} price`} type="number" min="0.01" step="0.01" placeholder="Override ₹/mo" value={sel.override} onChange={(e) => setForm({ ...form, planSel: form.planSel.map((row) => row.key === sel.key ? { ...row, override: e.target.value } : row) })} />
@@ -289,13 +292,13 @@ export function SubscribersPage() {
             </div>
             {error && <div className="error">{error}</div>}
             <div className="actions">
-              <button onClick={() => setForm(null)}>Cancel</button>
-              <button className="primary" disabled={create.isPending || !form.customerId || selectedCount === 0}
+              <button onClick={closeEditor}>Cancel</button>
+              <button className="primary" disabled={create.isPending || !form.customerId || selectedCount === 0 || form.planSel.some(row=>!row.planId || (!!row.override && (!Number.isFinite(Number(row.override)) || Number(row.override)<=0)))}
                 onClick={() => create.mutate(form)}>
                 {create.isPending ? "Creating…" : `Create (${selectedCount} plan${selectedCount === 1 ? "" : "s"})`}
               </button>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
@@ -312,8 +315,8 @@ export function SubscribersPage() {
       )}
 
       {manageFor && (
-        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setManageFor(null)}>
-          <div className="modal compact-modal" style={{ width: 820 }} onClick={(e) => e.stopPropagation()}>
+        <div className="subscriber-editor-page">
+          <section className="card subscriber-editor" aria-label="Edit subscriber details">
             <h3>Subscriber — {manageFor.code} <span style={{ fontWeight: 400, fontSize: 14 }}>({manageFor.customer.name})</span></h3>
             <label>Subscriber type</label>
             <select aria-label="Edit subscriber type" value={manageFor.subscriberType} onChange={async (e) => {
@@ -390,9 +393,9 @@ export function SubscribersPage() {
               <button className="primary" disabled={doAddPlan.isPending || !addPlan.planId} onClick={() => doAddPlan.mutate()}>
                 {doAddPlan.isPending ? "Adding…" : "Add plan"}
               </button>
-              <button onClick={() => setManageFor(null)}>Close</button>
+              <button onClick={closeEditor}>Back to subscribers</button>
             </div>
-          </div>
+          </section>
         </div>
       )}
     </>

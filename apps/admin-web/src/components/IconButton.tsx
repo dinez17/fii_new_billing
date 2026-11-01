@@ -1,7 +1,9 @@
 import type { ButtonHTMLAttributes } from "react";
 
-export type ActionName = "whatsapp" | "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning" | "print" | "convert" | "calendar" | "pause" | "terminate";
+export type ActionName = "stock" | "history" | "whatsapp" | "edit" | "view" | "download" | "mail" | "return" | "pay" | "delete" | "lock" | "unlock" | "ledger" | "more" | "check" | "close" | "key" | "warning" | "print" | "convert" | "calendar" | "pause" | "terminate";
 const paths: Record<ActionName, string> = {
+  stock: "M3 7l9-5 9 5v10l-9 5-9-5V7Zm0 0 9 5 9-5M12 12v10M7 9l10-5M17 14v5m-2-2h4",
+  history: "M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2",
   whatsapp: "M21 11.5a9 9 0 0 1-13.5 7.8L2 21l1.7-5.5A9 9 0 1 1 21 11.5ZM8 7c0 4 3 7 7 7l1-2-3-1-1 1-2-2 1-1-1-3-2 1Z",
   pause: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM9 8v8M15 8v8",
   terminate: "M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6ZM8 8l8 8M16 8l-8 8",

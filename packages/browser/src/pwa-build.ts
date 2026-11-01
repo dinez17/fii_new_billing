@@ -1,3 +1,5 @@
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 import { createHash } from "node:crypto";
 import { APP_NAME, APP_FULL_NAME, APP_TAGLINE } from "./brand";
 
@@ -7,8 +9,8 @@ export function serviceWorkerSource(version: string, mode: string): string {
   return `/* FII app shell only: authenticated data and documents are never cached. */
 const PREFIX = ${JSON.stringify(`fii-${mode}-shell-`)};
 const CACHE = PREFIX + ${JSON.stringify(version)};
-const SHELL = ['/offline.html','/manifest.webmanifest','/pwa/vaniga-${mode}-192.png','/pwa/vaniga-${mode}-512.png'];
-self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
+const SHELL = ['/offline.html','/manifest.webmanifest','/pwa/vaniga-${mode}-192.png','/pwa/vaniga-${mode}-512.png','/pwa/vaniga-${mode}-maskable.png','/pwa/vaniga-${mode}-180.png'];
+self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(url => new Request(url,{cache:"reload"}))))));
 self.addEventListener('activate', event => event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith(PREFIX)&&key!==CACHE)await caches.delete(key);await self.clients.claim()})()));
 self.addEventListener('message', event => {if(event.data && event.data.type==='SKIP_WAITING')self.skipWaiting()});
 self.addEventListener('fetch', event => {
@@ -23,13 +25,18 @@ self.addEventListener('fetch', event => {
 interface Emitter { emitFile(asset: { type: "asset"; fileName: string; source: string }): unknown }
 export function pwaBuild(mode: "tenant" | "platform" | "portal") {
   const name = mode === "tenant" ? APP_FULL_NAME : `${APP_NAME} — ${mode === "platform" ? "Platform Admin" : "Customer Portal"}`;
+  let publicDir: string | undefined;
   return {
+    configResolved(config: {publicDir:string}) {publicDir=config.publicDir;},
     name: "fii-pwa", apply: "build" as const,
     transformIndexHtml(html: string) {
       return html.replace(/<title>.*?<\/title>/, `<title>${name}</title>`).replace("</head>", `<meta name="theme-color" content="#18334d"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="${APP_NAME}"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/pwa/vaniga-${mode}-180.png"><link rel="icon" type="image/png" href="/pwa/vaniga-${mode}-192.png"></head>`);
     },
-    generateBundle(this: Emitter, _options: unknown, bundle: Record<string, { fileName: string }>) {
-      const version = createHash("sha256").update(JSON.stringify(Object.keys(bundle).sort())).digest("hex").slice(0, 16);
+    generateBundle(this: Emitter, _options: unknown, bundle: Record<string, { fileName: string; code?:string; source?:string|Uint8Array }>) {
+      const hash=createHash("sha256").update(mode).update(offlineHtml);
+      for(const key of Object.keys(bundle).sort())hash.update(key).update(bundle[key].code??bundle[key].source??"");
+      if(publicDir)for(const name of [`vaniga-${mode}-192.png`,`vaniga-${mode}-512.png`,`vaniga-${mode}-maskable.png`,`vaniga-${mode}-180.png`])hash.update(readFileSync(join(publicDir,"pwa",name)));
+      const version=hash.digest("hex").slice(0,16);
       const manifest = { id: "/", name, short_name: mode === "portal" ? "VANIGA Portal" : mode === "platform" ? "VANIGA Admin" : APP_NAME, description: APP_TAGLINE, lang: "en-IN", start_url: "/?source=pwa", scope: "/", display: "standalone", background_color: "#f1f5f9", theme_color: "#18334d", icons: [192, 512].map(size => ({ src: `/pwa/vaniga-${mode}-${size}.png`, sizes: `${size}x${size}`, type: "image/png", purpose: "any" })).concat([{ src: `/pwa/vaniga-${mode}-maskable.png`, sizes: "512x512", type: "image/png", purpose: "maskable" }]) };
       this.emitFile({ type: "asset", fileName: "manifest.webmanifest", source: JSON.stringify(manifest, null, 2) });
       this.emitFile({ type: "asset", fileName: "offline.html", source: offlineHtml });

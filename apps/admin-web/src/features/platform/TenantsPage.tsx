@@ -61,10 +61,10 @@ export function TenantsPage() {
   }
 
   return <>
-    <h2 className="page-title">Tenant management</h2>
+    <div className="page-heading"><h2 className="page-title">Tenant management</h2><div className="page-heading-actions"><button className="primary" onClick={() => setCreating(true)}>+ New tenant</button></div></div>
     {notice && <div className="success-banner" role="status">{notice}</div>}
     {tenants.isError && <div className="error" role="alert">{errMessage(tenants.error)}</div>}
-    <div className="toolbar"><RowsPerPage value={pageSize} onChange={setPageSize} /><input placeholder="Search tenant…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /><div className="spacer" /><button className="primary" onClick={() => setCreating(true)}>+ New tenant</button></div>
+    <div className="toolbar"><RowsPerPage value={pageSize} onChange={setPageSize} /><div className="filter-search-row"><input placeholder="Search tenant…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div><div className="spacer" /></div>
     {licenseKey && <div className="success-banner">New license key (shown once): <code>{licenseKey}</code> <button onClick={() => void navigator.clipboard.writeText(licenseKey)}>Copy</button></div>}
     <table><thead><tr><th>Tenant</th><th>Plan</th><th>License</th><th>Usage</th><th>Limits</th><th /></tr></thead><tbody>
       {tenants.data?.items.map((t) => <tr key={t.id}><td><strong>{t.name}</strong><div><code>{t.subdomain}</code></div><div>{t.email}</div><div>{t.phone}</div></td><td>{t.planCode}</td><td><span className={`badge ${t.isActive ? "ok" : "warn"}`}>{t.licenseStatus}</span><div>{t.licenseEndsAt ? `until ${formatDate(t.licenseEndsAt)}` : ""}</div></td><td>{t._count.users} users · {t._count.customers} customers</td><td>{t.maxUsers} users · {t.maxCustomers} customers</td><td><IconButton className="small" onClick={() => editTenant(t)} icon="edit" label="Edit details">Edit details</IconButton> <IconButton className="small" onClick={() => setAdminTenant(t)} icon="more" label="Admin users">Admin users</IconButton> <IconButton className="small" onClick={() => void changeLicense(t)} icon="more" label="License">License</IconButton> {t.isActive && <IconButton className="small" onClick={() => void suspend(t)} icon="more" label="Suspend">Suspend</IconButton>}</td></tr>)}

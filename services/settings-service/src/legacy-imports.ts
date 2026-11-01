@@ -11,13 +11,23 @@ const h = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandle
 export const legacyImportsRouter = Router();
 const approvalGroup = "LEGACY_REVIEW_APPROVAL";
 legacyImportsRouter.use(authenticate, authorize("backup:read"), (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+legacyImportsRouter.post("/accept-balances", authorize("backup:update"), h(async (req,res)=>{
+  const body=z.object({confirm:z.literal(true)}).parse(req.body), tenantId=req.auth!.tenantId;
+  const value=JSON.stringify({accepted:true,acceptedAt:new Date().toISOString(),acceptedBy:req.auth!.sub,note:"Current balances accepted; held legacy documents remain excluded."});
+  await prisma.$transaction(async tx=>{
+    await tx.setting.upsert({where:{tenantId_group_key:{tenantId,group:"LEGACY_IMPORT",key:"acceptedBalances"}},create:{tenantId,group:"LEGACY_IMPORT",key:"acceptedBalances",value,isSecret:false},update:{value}});
+    await tx.auditLog.create({data:{tenantId,userId:req.auth!.sub,action:"LEGACY_BALANCES_ACCEPTED",entity:"Tenant",entityId:tenantId,after:{...JSON.parse(value),confirm:body.confirm}}});
+  });
+  res.json({accepted:true});
+}));
 legacyImportsRouter.get("/summary", h(async (req, res) => {
   const tenantId = req.auth!.tenantId;
-  const [groups, manifest] = await Promise.all([
+  const [groups, manifest, accepted] = await Promise.all([
     prisma.legacyRecord.groupBy({ by: ["sourceTable", "status"], where: { tenantId }, _count: true }),
     prisma.setting.findUnique({ where: { tenantId_group_key: { tenantId, group: "LEGACY_IMPORT", key: "lisoft" } } }),
+    prisma.setting.findUnique({where:{tenantId_group_key:{tenantId,group:"LEGACY_IMPORT",key:"acceptedBalances"}}}),
   ]);
-  res.json({ groups: groups.map((group) => ({ sourceTable: group.sourceTable, status: group.status, count: group._count })), manifest: manifest ? JSON.parse(manifest.value) : null });
+  res.json({ balancesAccepted: !!accepted, groups: groups.map((group) => ({ sourceTable: group.sourceTable, status: group.status, count: group._count })), manifest: manifest ? JSON.parse(manifest.value) : null });
 }));
 legacyImportsRouter.get("/records", h(async (req, res) => {
   const parsed = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(25), status: z.enum(["IMPORTED", "REVIEW", "ARCHIVED"]).optional(), sourceTable: z.string().regex(/^user_[a-z0-9_]+$/).optional(), search: z.string().max(150).optional() }).safeParse(req.query);

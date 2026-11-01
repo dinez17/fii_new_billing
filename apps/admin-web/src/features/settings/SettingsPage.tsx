@@ -463,10 +463,7 @@ function FyTab() {
 
   return (
     <>
-      <div className="toolbar">
-        <div className="spacer" />
-        {canCreate && <button className="primary" onClick={() => setCreating(true)}>+ New FY</button>}
-      </div>
+      <div className="page-heading"><h3>Financial years</h3><div className="page-heading-actions">{canCreate && <button className="primary" onClick={() => setCreating(true)}>+ New FY</button>}</div></div>
       <ListTable>
         <thead><tr><th>Code</th><th>Start</th><th>End</th><th>Status</th><th /></tr></thead>
         <tbody>

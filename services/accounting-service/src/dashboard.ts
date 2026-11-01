@@ -63,7 +63,7 @@ export async function businessDashboard(tenantId: string, now = new Date()) {
       tx.salesDocument.aggregate({ where: { tenantId, kind: "QUOTATION", status: "OPEN" }, _count: true, _sum: { grandTotal: true } }),
       tx.salesDocument.aggregate({ where: { tenantId, kind: "PROFORMA", status: "OPEN" }, _count: true, _sum: { grandTotal: true } }),
       tx.task.count({ where: { tenantId, status: { in: ["PENDING", "IN_PROGRESS"] }, dueDate: { lt: dates.dateStart } } }),
-      tx.legacyRecord.count({ where: { tenantId, status: "REVIEW", sourceTable: "user_bills" } }),
+      tx.setting.findUnique({where:{tenantId_group_key:{tenantId,group:"LEGACY_IMPORT",key:"acceptedBalances"}}}).then(accepted=>accepted ? 0 : tx.legacyRecord.count({ where: { tenantId, status: "REVIEW", sourceTable: "user_bills" } })),
       tx.$queryRaw<Array<{ month: string; total: Prisma.Decimal; gst: Prisma.Decimal; withoutGst: Prisma.Decimal }>>`SELECT to_char("invoiceDate",'YYYY-MM') AS month,SUM("grandTotal") AS total,
         COALESCE(SUM("grandTotal") FILTER (WHERE "chargeGst"),0) AS gst,COALESCE(SUM("grandTotal") FILTER (WHERE NOT "chargeGst"),0) AS "withoutGst"
         FROM "Invoice" WHERE "tenantId"=${tenantId} AND ${invoiceStatus} ${fyFilter} AND "invoiceDate">=${fromChart} AND "invoiceDate"<=${dates.dateEnd} GROUP BY month`,

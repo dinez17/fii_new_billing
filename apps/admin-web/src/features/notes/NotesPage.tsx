@@ -153,20 +153,20 @@ export function NotesPage() {
 
   return (
     <>
-      <h2 className="page-title">Sales Returns / Debit Notes</h2>
+      <div className="page-heading"><h2 className="page-title">Sales Returns / Debit Notes</h2><div className="page-heading-actions">{hasPerm(`${module}:create`) && (
+          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>
+            + New {kind === "credit" ? "Sales Return" : "Debit Note"}
+          </button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input aria-label="Search note number" placeholder="Search note number…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input aria-label="Search note number" placeholder="Search note number…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select aria-label="Note status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option><option>ISSUED</option><option>ADJUSTED</option><option>CANCELLED</option></select>
         <TransactionFilters period={period} />
         <button className={kind === "credit" ? "primary" : ""} onClick={() => { setKind("credit"); setPage(1); }}>Sales Returns (Credit)</button>
         <button className={kind === "debit" ? "primary" : ""} onClick={() => { setKind("debit"); setPage(1); }}>Debit Notes</button>
         <div className="spacer" />
-        {hasPerm(`${module}:create`) && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>
-            + New {kind === "credit" ? "Sales Return" : "Debit Note"}
-          </button>
-        )}
+
       </div>
 
       <table>

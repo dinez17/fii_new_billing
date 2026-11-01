@@ -86,20 +86,20 @@ export function ProductsPage() {
 
   return (
     <>
-      <h2 className="page-title">Products & Stock</h2>
+      <div className="page-heading"><h2 className="page-title">Products & Stock</h2><div className="page-heading-actions">{hasPerm("product:create") && (
+          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Product</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 240 }} placeholder="Search name / SKU…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 240 }} placeholder="Search name / SKU…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <label style={{ margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" style={{ width: "auto" }} checked={lowOnly} onChange={(e) => { setLowOnly(e.target.checked); setPage(1); }} />
           Low stock only
         </label>
         <div className="spacer" />
         {hasPerm("product:create") && <BulkImport kind="products" />}
-        {hasPerm("product:create") && (
-          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Product</button>
-        )}
+
       </div>
 
       <table>
@@ -132,10 +132,10 @@ export function ProductsPage() {
                   })} icon="edit" label="Edit">Edit</IconButton>
                 )}{" "}
                 {!p.isService && hasPerm("stock:update") && (
-                  <IconButton className="small" onClick={() => { setAdjustFor(p); setError(""); }} icon="more" label="Adjust">Adjust</IconButton>
+                  <IconButton className="small" onClick={() => { setAdjustFor(p); setError(""); }} icon="stock" label="Adjust stock">Adjust</IconButton>
                 )}{" "}
                 {!p.isService && hasPerm("stock:read") && (
-                  <IconButton className="small" onClick={() => setMovesFor(p)} icon="more" label="History">History</IconButton>
+                  <IconButton className="small" onClick={() => setMovesFor(p)} icon="history" label="Stock history">History</IconButton>
                 )}
               </td>
             </tr>

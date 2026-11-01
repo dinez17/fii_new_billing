@@ -4,7 +4,7 @@ import { notFound, type GstTotals } from "@fii/common";
 import { loadInvoiceCompany } from "./invoice-company.js";
 import { amountInWords } from "./amount-words.js";
 
-type Document = SalesDocument & { customer: Customer };
+type Document = SalesDocument & { customer: Customer | null };
 interface Item { description: string; hsnSac?: string; quantity: number; unitPrice: number; discount: number; gstRate: number }
 const date = (value: Date) => value.toISOString().slice(0, 10).split("-").reverse().join("-");
 const money = (value: unknown) => Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33,7 +33,7 @@ export function renderSalesDocument(doc: PDFKit.PDFDocument, record: Document, c
   metaY = text(`Date: ${date(record.documentDate)}\nValid until: ${date(record.validUntil)}\n${record.chargeGst ? "GST estimate" : "Without GST"} · ${record.status}`, 343, metaY, 218, 8.5, false, "right");
   y = Math.max(companyY, metaY, y + 70) + 16; rule(y); y += 14;
   text("PREPARED FOR", left, y, 250, 8, true); text("INSTALLATION / SERVICE ADDRESS", 310, y, 251, 8, true); y += 17;
-  const c = record.customer;
+  const c = record.customer ?? { ...(record.prospect as {name:string;email:string;phone:string;billingAddress:string}), city:null,stateName:null,pincode:null,gstin:null,serviceAddress:null,installationCity:null,installationState:null,installationPincode:null };
   const billing = [c.name, c.billingAddress, [c.city, c.stateName, c.pincode].filter(Boolean).join(", "), c.phone, record.chargeGst && c.gstin ? `GSTIN: ${c.gstin}` : ""].filter(Boolean).join("\n");
   const installation = [c.name, c.serviceAddress || "Same as billing address", [c.installationCity, c.installationState, c.installationPincode].filter(Boolean).join(", ")].filter(Boolean).join("\n");
   y = Math.max(text(billing, left, y, 248), text(installation, 310, y, 251)) + 16;
@@ -49,6 +49,7 @@ export function renderSalesDocument(doc: PDFKit.PDFDocument, record: Document, c
     text(description, left + 7, y + 5, 230); text(String(item.quantity), 282, y + 5, 40, 9, false, "right"); text(money(item.unitPrice), 329, y + 5, 68, 9, false, "right"); text(record.chargeGst ? String(item.gstRate) : "—", 403, y + 5, 48, 9, false, "right"); text(money(totals.lines[index].lineTotal), 462, y + 5, 92, 9, true, "right"); y += height; rule(y);
   });
   y += 14;
+  if(!record.alternativePlans) {
   const summary: [string, string][] = [["Subtotal", totals.subTotal]];
   if (Number(totals.discountTotal)) summary.push(["Discount", totals.discountTotal], ["Taxable value", totals.taxableValue]);
   if (record.chargeGst) for (const [label, value] of [["CGST", totals.cgst], ["SGST", totals.sgst], ["IGST", totals.igst]]) if (Number(value)) summary.push([label, value]);
@@ -57,6 +58,7 @@ export function renderSalesDocument(doc: PDFKit.PDFDocument, record: Document, c
   for (const [label, value] of summary) { text(label, 338, y, 110, 9); text(money(value), 454, y, 100, 9, false, "right"); y += 17; }
   doc.rect(329, y - 2, 232, 28).fillColor("#edf5f6").fill(); text("TOTAL INR", 338, y + 6, 100, 10, true); text(money(totals.grandTotal), 440, y + 6, 114, 12, true, "right"); y += 40;
   ensure(50); y = text(`Amount in words: ${amountInWords(Number(totals.grandTotal))}`, left, y, width, 9, true) + 14;
+  } else { ensure(45); y=text("Alternative service plans: prices apply to each option separately. No combined amount is payable under this quotation.",left,y,width,9)+16; }
   const paragraph = (heading: string, value: string) => {
     // Split paragraphs/long terms into safe blocks so every line remains printable.
     for (const [index, line] of value.split(/\n/).entries()) {

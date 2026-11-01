@@ -118,13 +118,19 @@ export function ExpensesPage() {
 
   return (
     <>
-      <h2 className="page-title">Expenses</h2>
+      <div className="page-heading"><h2 className="page-title">Expenses</h2><div className="page-heading-actions">{hasPerm("expense:create") && (
+          <>
+            <button className="small" onClick={() => void addMaster("category")}>+ Category</button>
+            <button className="small" onClick={() => void addMaster("vendor")}>+ Vendor</button>
+            <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Expense</button>
+          </>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <select aria-label="Expense status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="ALL">All statuses</option><option>RECORDED</option><option>CANCELLED</option></select>
         <TransactionFilters period={period} />
-        <input style={{ width: 220 }} placeholder="Search description…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 220 }} placeholder="Search description…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select style={{ width: 180 }} value={categoryId} onChange={(e) => { setCategoryId(e.target.value); setPage(1); }}>
           <option value="">All categories</option>
           {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -135,13 +141,7 @@ export function ExpensesPage() {
           </span>
         )}
         <div className="spacer" />
-        {hasPerm("expense:create") && (
-          <>
-            <button className="small" onClick={() => void addMaster("category")}>+ Category</button>
-            <button className="small" onClick={() => void addMaster("vendor")}>+ Vendor</button>
-            <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Expense</button>
-          </>
-        )}
+
       </div>
 
       <table>

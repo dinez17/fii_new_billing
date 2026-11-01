@@ -83,12 +83,12 @@ export function RolesPage() {
 
   return (
     <>
-      <h2 className="page-title">Roles & Permissions</h2>
+      <div className="page-heading"><h2 className="page-title">Roles & Permissions</h2><div className="page-heading-actions">{hasPerm("role:create") && (
+          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Role</button>
+        )}</div></div>
       <div className="toolbar">
         <div className="spacer" />
-        {hasPerm("role:create") && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Role</button>
-        )}
+
       </div>
 
       <ListTable>

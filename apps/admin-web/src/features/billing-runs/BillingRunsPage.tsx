@@ -81,16 +81,16 @@ export function BillingRunsPage() {
 
   return (
     <>
-      <h2 className="page-title">Billing Runs</h2>
+      <div className="page-heading"><h2 className="page-title">Billing Runs</h2><div className="page-heading-actions">{hasPerm("billing_run:create") && (
+          <button className="primary" onClick={() => { setTriggering(true); setError(""); setPreviewKey(""); setPreviewPage(1); }}>Run billing now</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <span style={{ color: "var(--muted)" }}>
           Automatic: prepaid on the 1st at 01:00 · postpaid on month-end at 23:00. Re-triggering a period only creates missing invoices.
         </span>
         <div className="spacer" />
-        {hasPerm("billing_run:create") && (
-          <button className="primary" onClick={() => { setTriggering(true); setError(""); setPreviewKey(""); setPreviewPage(1); }}>Run billing now</button>
-        )}
+
       </div>
 
       <table>

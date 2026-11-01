@@ -57,6 +57,10 @@ export function CustomersPage() {
   const [copyInstallation, setCopyInstallation] = useState(false);
   const [ledgerFor, setLedgerFor] = useState<CustomerRow | null>(null);
   const [error, setError] = useState("");
+  const [deleting,setDeleting]=useState<CustomerRow|null>(null);
+  const [customerBusy,setCustomerBusy]=useState("");
+  async function changeStatus(c:CustomerRow) {setCustomerBusy(c.id);setError("");try{await api.patch(`/customers/${c.id}/status`,{isActive:!c.isActive});await qc.invalidateQueries({queryKey:["customers"]});}catch(e){setError(errMessage(e));}finally{setCustomerBusy("");}}
+  async function deleteCustomer(){if(!deleting)return;setCustomerBusy(deleting.id);setError("");try{await api.delete(`/customers/${deleting.id}`);setDeleting(null);await qc.invalidateQueries({queryKey:["customers"]});}catch(e){setError(errMessage(e));}finally{setCustomerBusy("");}}
   const [cafFor, setCafFor] = useState("");
   const [portalFor, setPortalFor] = useState<CustomerRow | null>(null);
   const [portalPassword, setPortalPassword] = useState(""), [portalConfirm, setPortalConfirm] = useState("");
@@ -124,22 +128,22 @@ export function CustomersPage() {
         {portalError && <div className="error" role="alert">{portalError}</div>}
         <div className="actions"><button type="button" disabled={portalBusy} onClick={() => { setPortalFor(null); setPortalPassword(""); setPortalConfirm(""); }}>Cancel</button><button className="primary" disabled={portalBusy || !portalFor.email || !portalFor.isActive}>{portalBusy ? "Enabling…" : "Set password & enable"}</button></div>
       </form></div>}
-      <h2 className="page-title">Customers</h2>
+      {deleting && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true" aria-label="Delete inactive customer"><h3>Delete {deleting.name}?</h3><p>Only inactive customers with no opening balance, ledger transactions or linked business records can be deleted.</p>{error&&<div className="error">{error}</div>}<div className="actions"><button disabled={!!customerBusy} onClick={()=>{setDeleting(null);setError("");}}>Cancel</button><button className="danger" disabled={!!customerBusy} onClick={()=>void deleteCustomer()}>Delete customer</button></div></div></div>}
+      <div className="page-heading"><h2 className="page-title">Customers</h2><div className="page-heading-actions">{hasPerm("customer:create") && (
+          <button className="primary" onClick={() => { setCopyInstallation(false); setForm(EMPTY); setError(""); }}>+ New Customer</button>
+        )}</div></div>
       {error && !form && <div className="error">{error}</div>}
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 280 }} placeholder="Search name / phone / code…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <PartyListFilters customer value={filters} onChange={(value) => { setFilters(value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 280 }} placeholder="Search name / phone / code…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
         {hasPerm("customer:create") && <BulkImport kind="customers" />}
-        {hasPerm("customer:create") && (
-          <button className="primary" onClick={() => { setCopyInstallation(false); setForm(EMPTY); setError(""); }}>+ New Customer</button>
-        )}
+
       </div>
 
-      <div className="toolbar" style={{ flexWrap: "wrap" }}>
-        <PartyListFilters customer value={filters} onChange={(value) => { setFilters(value); setPage(1); }} />
-      </div>
+
       {customers.isError && <div className="error">{errMessage(customers.error)}</div>}
       <table>
         <thead>
@@ -180,6 +184,9 @@ export function CustomersPage() {
                     </IconButton>
                   </>
                 )}{" "}
+                {hasPerm("customer:update") && <IconButton icon={c.isActive?"pause":"check"} label={c.isActive?"Deactivate customer":"Activate customer"} disabled={customerBusy===c.id} onClick={()=>void changeStatus(c)}/>}
+                  {!c.isActive && hasPerm("customer:delete") && <IconButton icon="delete" className="danger" label="Delete inactive customer" disabled={customerBusy===c.id} onClick={()=>{setDeleting(c);setError("");}}/>}
+
                 {hasPerm("ledger:read") && (
                   <IconButton className="small" onClick={() => setLedgerFor(c)} icon="ledger" label="Ledger">Ledger</IconButton>
                 )}

@@ -78,16 +78,16 @@ export function PurchaseReturnsPage() {
 
   return (
     <>
-      <h2 className="page-title">Purchase Returns <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 14 }}>(Debit Notes to suppliers)</span></h2>
+      <div className="page-heading"><h2 className="page-title">Purchase Returns <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 14 }}>(Debit Notes to suppliers)</span></h2><div className="page-heading-actions">{hasPerm("purchase_return:create") && (
+          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Return</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <TransactionFilters period={period} />
-        <input style={{ width: 220 }} placeholder="Search return / supplier…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 220 }} placeholder="Search return / supplier…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
-        {hasPerm("purchase_return:create") && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Return</button>
-        )}
+
       </div>
 
       <table>

@@ -73,6 +73,12 @@ customersRouter.post("/", authorize("customer:create"), h(async (req, res) => {
 customersRouter.put("/:id", authorize("customer:update"), h(async (req, res) => {
   res.json(await customers.updateCustomer(req.auth!.tenantId, req.params.id, parse(customerBody.partial(), req.body)));
 }));
+customersRouter.patch("/:id/status", authorize("customer:update"), h(async(req,res)=>{
+ const body=parse(z.object({isActive:z.boolean()}),req.body);res.json(await customers.setCustomerStatus(req.auth!.tenantId,req.params.id,body.isActive,req.auth!.sub));
+}));
+customersRouter.delete("/:id", authorize("customer:delete"), h(async(req,res)=>{
+ res.json(await customers.deleteInactiveCustomer(req.auth!.tenantId,req.params.id,req.auth!.sub));
+}));
 customersRouter.post("/:id/portal-access", authorize("customer:update"), h(async (req, res) => {
   const b = parse(portalAccessBody, req.body);
   res.json(await customers.setPortalAccess(req.auth!.tenantId, req.params.id, b.enable, b.password, req.auth!.sub));

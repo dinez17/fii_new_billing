@@ -18,7 +18,7 @@ const server = createServer(async (req,res) => {
 await new Promise(r => server.listen(0,"127.0.0.1",r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {}) });
-const permissions = ["purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","backup:read","backup:update"];
+const permissions = ["purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","credit_note:create","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","subscriber:create","backup:read","backup:update"];
 const user = { id: "test-user", name: "Test Admin", email: "admin@example.test", userType: "STAFF" };
 const cash = "11111111-1111-4111-8111-111111111111", capital = "22222222-2222-4222-8222-222222222222";
 const accountRows = [{ id: cash, code: "CASH", name: "Verified cash", type: "ASSET", isMoneyAccount: true }, { id: capital, code: "CAPITAL", name: "Capital", type: "EQUITY", isMoneyAccount: false }];
@@ -30,6 +30,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
     const documentRequests=[];
+    let prospectBody;
     let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody, receiptEmailBody, receiptWhatsappBody, customerSort;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
@@ -43,7 +44,8 @@ try {
       if(path === "/purchase-returns")data={items:[{id:"pr",returnNumber:"PR-001",returnDate:"2026-11-01",taxableValue:"100",totalGst:"18",total:"118",supplier:{name:"Sample supplier"},purchaseInvoice:{ourNumber:"PI-001"}}],total:1,limit:20};
       if(path === "/credit-notes"||path === "/debit-notes")data={items:[{id:"note",noteNumber:"NOTE-001",noteDate:"2026-11-01",reason:"Adjustment",total:"118",status:"ISSUED",invoice:{invoiceNumber:"INV-001",customer:{name:"Sample customer"}}}],total:1,limit:20};
       if(request.method()==="POST"&&/\/(purchase-orders|purchase-invoices|purchase-returns|credit-notes|debit-notes|sales-documents)\/[^/]+\/(email|whatsapp)$/.test(path)){documentRequests.push({path,body:request.postDataJSON()});data={queued:true};}
-      if(path === "/sales-documents") data={items:[{id:"quote",kind:"QUOTATION",documentNumber:"Q-001",documentDate:"2026-10-31",validUntil:"2026-11-15",grandTotal:"118",status:"OPEN",chargeGst:true,version:7,customer:{name:"Sample Customer"}}],total:1};
+      if(path === "/payments/tds-report")data={financialYear:years[0],items:[],totalTds:"0",entries:0};
+      if(path === "/sales-documents") data={items:[{id:"quote",kind:"QUOTATION",documentNumber:"Q-001",customerId:"customer",documentDate:"2026-10-31",validUntil:"2026-11-15",grandTotal:"118",status:"OPEN",chargeGst:true,version:7,customer:{name:"Sample Customer"}}],total:1};
       if(path === "/sales-documents/quote/convert"){conversionBody=request.postDataJSON();data={id:"converted",kind:"PROFORMA",number:"PF-001"};}
       if(path === "/sales-documents/converted")data={id:"converted",kind:"PROFORMA",documentNumber:"PF-001",documentDate:"2026-10-31",validUntil:"2026-11-15",grandTotal:"100",status:"OPEN",chargeGst:false,version:1,customerId:"customer",customer:{name:"Sample Customer"},items:[]};
       if (path === "/auth/me") data = {user,permissions};
@@ -51,21 +53,45 @@ try {
       if (path === "/financial-years") data = years;
       if (path === "/billing-runs/preview") data = { items:[{ subscriberId:"sub",code:"SUB-001",customer:"Sample Customer",chargeGst:true,periodStart:"2027-01-01",periodEnd:"2027-03-31",amount:"354.00",eligible:true,reason:"Ready to invoice" }],total:1,page:1,limit:20 };
       if(path === "/customers"){customerSort=url.searchParams.get("sortBy");data={items:[{id:"subscriber-buyer",code:"C-1",name:"Subscriber customer",isActive:true,gstTreatment:"B2C",invoiceCount:1,currentOutstanding:"100",heldInvoiceCount:0,subscriptionCount:2,_count:{subscribers:2},portalEnabled:false}],total:1};}
-      if(path === "/subscribers")data={items:[{id:"subscriber",code:"SUB-001",subscriberType:"PREPAID",chargeGst:true,billingCycleMonths:1,status:"ACTIVE",activationDate:"2026-10-01",customer:{id:"customer",name:"Sample Customer",phone:"9000000000"},nextBilling:{invoiceDate:"2026-12-01",periodStart:"2026-12-01",periodEnd:"2026-12-31"},plans:[{id:"mapping",startDate:"2026-10-01",location:"Branch A",plan:{id:"plan",code:"P1",name:"Sample plan",price:"100"}}]}],total:1};
+      if(path === "/plans")data=[{id:"plan",name:"Sample plan",code:"P1",price:"100"},{id:"plan-2",name:"Second plan",code:"P2",price:"200"}];
+      if(path === "/subscribers"||path === "/subscribers/subscriber")data={items:[{id:"subscriber",code:"SUB-001",subscriberType:"PREPAID",chargeGst:true,billingCycleMonths:1,status:"ACTIVE",activationDate:"2026-10-01",customer:{id:"customer",name:"Sample Customer",phone:"9000000000"},nextBilling:{invoiceDate:"2026-12-01",periodStart:"2026-12-01",periodEnd:"2026-12-31"},plans:[{id:"mapping",startDate:"2026-10-01",location:"Branch A",plan:{id:"plan",code:"P1",name:"Sample plan",price:"100"}}]}],total:1};
+      if(path === "/subscribers/subscriber")data=data.items[0];
       if(path === "/subscribers/subscriber/schedules")data=[];
       if (path === "/payments") data = {items:[{id:"payment",amount:"90",tdsAmount:"10",mode:"CASH",paymentDate:"2026-10-31",status:"SUCCESS",customer:{name:"Sample Customer",whatsappInvoiceEnabled:true},receipt:{id:"receipt",receiptNumber:"R-001"},allocations:[]}],total:1,limit:20};
       if(path === "/receipts/receipt/email"){receiptEmailBody=request.postDataJSON();data={queued:true};}
       if(path === "/receipts/receipt/whatsapp"){receiptWhatsappBody=request.postDataJSON();data={queued:true};}
       if (path === "/payments/payment/reverse") { reverseBody = request.postDataJSON(); data = {reversed:true}; }
       if (path === "/financial-controls/accounts") data = accountRows;
+      if(path === "/financial-controls/money-accounts")data=[{id:cash,name:"Cash",code:"SYS_CASH"},{id:"bank",name:"TMB",code:"TMB"},{id:"unassigned",name:"Bank unassigned",code:"SYS_BANK_UNASSIGNED"}];
       if (path === "/financial-controls/journals" && request.method() === "POST") { journalBody = request.postDataJSON(); data = {id:"journal"}; }
       if (path === "/financial-controls/trial-balance") data = {items:accountRows.map(a => ({...a,opening:"0",debit:"100",credit:"100",closing:"0"})),difference:"0.00",scope:"Explicit journals only"};
       if (path === "/financial-controls/bank-statements") data = {items:[{id:"statement",statementDate:"2026-10-31",reference:"BANK-001",narration:"Verified receipt",debit:"0",credit:"100",journalLineId:null}],total:1};
       if(path === "/financial-controls/bank-statements" && request.method()==="POST"){statementBody=request.postDataJSON();data={imported:1,duplicates:0};}
       if (path.endsWith("/candidates")) data = [{id:"line",journal:{entryDate:"2026-10-31",narration:"Verified customer receipt"}}];
+      if(path === "/payments/tds-report")data={financialYear:years[0],items:[],totalTds:"0",entries:0};
+      if(path === "/sales-documents") { if(request.method()==="POST") {prospectBody=request.postDataJSON();data={id:"prospect-quote"};} }
       await route.fulfill({json:data});
     });
     const page = await context.newPage();
+    await page.goto(`${base}/quotations/new`);
+    assert.equal(await page.getByLabel("Prepared for",{exact:false}).inputValue(),"PROSPECT");
+    assert.equal(await page.getByLabel("Quotation pricing",{exact:false}).inputValue(),"OPTIONS");
+    const quoteDate=await page.getByLabel("Document date calendar",{exact:true}).inputValue(),validDate=await page.getByLabel("Valid until calendar",{exact:true}).inputValue();
+    assert.equal((Date.parse(validDate)-Date.parse(quoteDate))/86400000,15);
+    assert.equal(await page.getByLabel("Subject",{exact:true}).count(),0);assert.equal(await page.getByLabel("PO reference",{exact:true}).count(),0);checks++;
+    await page.getByLabel("Prospect / company name",{exact:false}).fill("Prospect Limited");
+    await page.getByLabel("Quotation email",{exact:false}).fill("prospect@example.test");
+    await page.getByLabel("Item 1 description",{exact:true}).fill("Connection installation");
+    await page.getByLabel("Item 1 rate",{exact:true}).fill("1500");
+    await page.getByRole("button",{name:"Create document"}).click();
+    await page.waitForURL("**/quotations");
+    assert.equal(prospectBody.prospect.name,"Prospect Limited");assert(!prospectBody.customerId);checks++;
+    await page.goto(`${base}/invoices`);
+    assert.equal(await page.getByRole("button",{name:"Write off",exact:true}).count(),0);
+    assert.equal(await page.locator(".page-heading-actions").getByRole("button",{name:"+ New Invoice",exact:true}).count(),1);
+    const searchBox=await page.getByPlaceholder("Search number / customer…").boundingBox(), statusBox=await page.getByLabel("Invoice status",{exact:true}).boundingBox();
+    assert(searchBox.y>statusBox.y);checks++;
+    await page.goto(`${base}/reports/tds`); await page.getByRole("heading",{name:"Customer TDS report",exact:true}).waitFor();checks++;
     await page.goto(`${base}/billing-runs`);
     await page.getByRole("button",{name:"Run billing now"}).click();
     const run = page.locator(".modal");
@@ -79,9 +105,25 @@ try {
     assert.notEqual(await page.getByRole("button",{name:"Suspend",exact:true}).locator("path").getAttribute("d"),await page.getByRole("button",{name:"Terminate",exact:true}).locator("path").getAttribute("d"));
     await page.locator(".subscriber-type-line").first().waitFor();const prepaidBox=await page.locator(".subscriber-type-line").nth(0).boundingBox(),cycleBox=await page.locator(".subscriber-type-line").nth(1).boundingBox();assert(cycleBox.y>prepaidBox.y);
     await page.getByText("Bill date: 01-12-2026",{exact:true}).waitFor();await page.getByText("From: 01-12-2026",{exact:true}).waitFor();await page.getByText("To: 31-12-2026",{exact:true}).waitFor();checks++;
+    await page.getByRole("button",{name:"+ New Subscriber",exact:true}).click();
+    await page.getByRole("region",{name:"Create subscriber",exact:true}).waitFor();
+    const newPlan=page.getByRole("combobox",{name:"Search plan name / code…",exact:true});
+    await newPlan.fill("Sample");await page.getByRole("option",{name:"Sample plan · P1",exact:true}).click();
+    await page.getByRole("button",{name:"Add plan",exact:true}).click();
+    await newPlan.fill("Sample");await page.getByRole("option",{name:"Sample plan · P1",exact:true}).click();
+    await page.getByRole("button",{name:"Add plan",exact:true}).click();
+    await page.getByText("2 of 50 connections added",{exact:true}).waitFor();
+    await page.getByRole("combobox",{name:"Plan for connection 1",exact:true}).fill("Second");
+    await page.getByRole("option",{name:"Second plan · P2",exact:true}).click();
+    assert.equal(await page.getByRole("combobox",{name:"Plan for connection 1",exact:true}).inputValue(),"Second plan · P2");checks++;
+
+    assert.equal(await page.locator(".modal-overlay").count(),0);checks++;
+    await page.getByRole("button",{name:"← Back to subscribers",exact:true}).click();
     await page.getByRole("button",{name:"Manage subscriber / PO number",exact:true}).click();
     assert.equal(await page.getByRole("button",{name:"Schedule change",exact:true}).count(),0);
-    await page.getByRole("button",{name:"Close",exact:true}).click();
+    await page.getByRole("region",{name:"Edit subscriber details"}).waitFor();
+    assert.equal(await page.locator(".modal-overlay").count(),0);
+    await page.getByRole("button",{name:"← Back to subscribers",exact:true}).click();
     await page.getByRole("button",{name:"Service changes",exact:true}).click();
     const serviceDialog=page.getByRole("dialog",{name:"Service changes — SUB-001",exact:true});
     await serviceDialog.waitFor();
@@ -89,6 +131,20 @@ try {
     assert.equal(await serviceDialog.getByLabel("Edit subscriber type",{exact:true}).count(),0);
     await serviceDialog.getByRole("button",{name:"Close",exact:true}).click();checks++;
     await page.goto(`${base}/payments`);
+    await page.getByRole("button",{name:"+ Record Payment",exact:true}).click();
+    assert.equal(await page.getByLabel("Mode",{exact:true}).inputValue(),"BANK_TRANSFER");
+    await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"TMB",exact:true}).waitFor({state:"attached"});
+    assert.equal(await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"Cash",exact:true}).count(),0);
+    assert.equal(await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"Bank unassigned",exact:true}).count(),0);
+    await page.getByLabel("Receiving bank account",{exact:true}).selectOption("bank");
+    await page.getByLabel("Mode",{exact:true}).selectOption("CASH");
+    assert.equal(await page.getByLabel("Cash account",{exact:true}).inputValue(),"");
+    assert.equal(await page.getByLabel("Cash account",{exact:true}).getByRole("option",{name:"TMB",exact:true}).count(),0);checks++;
+    await page.getByLabel("Mode",{exact:true}).selectOption("WRITE_OFF");
+    await page.getByRole("heading",{name:"Select invoice to write off",exact:true}).waitFor();
+    assert(await page.getByRole("button",{name:"Continue write-off",exact:true}).isDisabled());
+    assert.equal(await page.getByLabel("Receiving bank account",{exact:true}).count(),0);
+    await page.getByRole("button",{name:"Cancel",exact:true}).click();checks++;
     await page.getByRole("button",{name:"Email receipt",exact:true}).waitFor();
     const receiptDialog=dialog=>dialog.accept();page.on("dialog",receiptDialog);
     await page.getByRole("button",{name:"Email receipt",exact:true}).click();await page.waitForFunction(()=>true);await page.waitForTimeout(100);assert.match(receiptEmailBody.requestId,/^[0-9a-f-]{36}$/i);

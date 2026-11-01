@@ -1,4 +1,3 @@
-import {WriteOffModal} from "./WriteOffModal";
 import { formatDate } from "../../lib/date";
 import { downloadPdf as savePdf } from "../../lib/pdf-download";
 import { IconButton } from "../../components/IconButton";
@@ -28,7 +27,6 @@ const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFra
 
 export function InvoicesPage() {
   const qc = useQueryClient();
-  const [writeOff,setWriteOff]=useState<InvoiceRow|null>(null);
   const navigate = useNavigate();
   const hasPerm = useAuth((s) => s.hasPerm);
   const [page, setPage] = useState(1);
@@ -121,15 +119,16 @@ export function InvoicesPage() {
 
   return (
     <>
-      {writeOff && <WriteOffModal invoice={writeOff} close={()=>setWriteOff(null)} />}
-      <h2 className="page-title">Invoices</h2>
+      <div className="page-heading"><h2 className="page-title">Invoices</h2><div className="page-heading-actions">{hasPerm("invoice:create") && (
+          <button className="primary" onClick={() => navigate("/invoices/new", { state: { chargeGst: taxMode !== "WITHOUT_GST" } })}>+ New Invoice</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <select aria-label="Invoice register" value={taxMode} onChange={(e) => { setTaxMode(e.target.value); setPage(1); }}>
           <option value="GST">GST invoices</option><option value="WITHOUT_GST">Without GST invoices</option><option value="">All invoices</option>
         </select>
-        <input style={{ width: 200 }} placeholder="Search number / customer…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 200 }} placeholder="Search number / customer…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select aria-label="Invoice status" style={{ width: 180 }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
           <option value="OUTSTANDING">Unpaid + partially paid</option>
           <option value="">All statuses</option>
@@ -145,9 +144,7 @@ export function InvoicesPage() {
         <span style={{ color: "var(--muted)" }}>–</span>
         <input type="date" title="To date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />
         <div className="spacer" />
-        {hasPerm("invoice:create") && (
-          <button className="primary" onClick={() => navigate("/invoices/new", { state: { chargeGst: taxMode !== "WITHOUT_GST" } })}>+ New Invoice</button>
-        )}
+
       </div>
       {fys.isError && <div className="error">{errMessage(fys.error)}</div>}
       {list.isError && <div className="error">{errMessage(list.error)}</div>}
@@ -177,7 +174,6 @@ export function InvoicesPage() {
                   <IconButton className="small" title="Sales return / credit note"
                     onClick={() => navigate("/notes", { state: { invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, kind: "credit" } })} icon="return" label="Return">Return</IconButton>
                 )}
-                {hasPerm("credit_note:create") && Number(inv.balance)>0 && inv.status!=="CANCELLED" && <button className="small" onClick={()=>setWriteOff(inv)}>Write off</button>}
                 {hasPerm("invoice:update") && inv.status === "UNPAID" && <>
                   {" "}<IconButton className="small danger" icon="close" label="Cancel invoice" onClick={() => void cancelInvoice(inv)} />
                   {" "}<IconButton className="small" icon="edit" label="Edit invoice" onClick={() => navigate(`/invoices/${inv.id}/edit`)} />

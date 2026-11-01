@@ -128,6 +128,31 @@ suite("quotation and proforma sales workflow", () => {
     const converted = await prisma.salesDocument.findFirstOrThrow({ where: { tenantId, invoiceId: { not: null } }, include: { invoice: true } });
     expect(converted.invoice?.tenantId).toBe(tenantId);
   });
+  it("quotes and emails a prospect without a customer profile, then requires a confirmed customer for invoicing", async () => {
+    const count = await prisma.customer.count({where:{tenantId}});
+    const quote = await createSalesDocument(tenantId, actorId, input({customerId:undefined, prospect:{name:"Prospect Acme",email:"prospect@example.test",phone:"9876543210",billingAddress:"Prospect Road",stateCode:"33"}}));
+    expect(quote.customerId).toBeNull();
+    expect(await prisma.customer.count({where:{tenantId}})).toBe(count);
+    expect((await listSalesDocuments(tenantId,documentQuery.parse({search:"acme"}))).items.map(r=>r.id)).toContain(quote.id);
+    expect((await buildSalesDocumentPdfBuffer(tenantId,quote.id)).buffer.subarray(0,5).toString()).toBe("%PDF-");
+    expect((await emailSalesDocument(tenantId,quote.id)).to).toBe("prospect@example.test");
+    await expect(convertSalesDocument(tenantId,actorId,quote.id,conversion(1))).rejects.toThrow(/confirmed customer/);
+    const converted = await convertSalesDocument(tenantId,actorId,quote.id,{...conversion(1),customerId});
+    expect((await prisma.invoice.findUniqueOrThrow({where:{id:converted.id}})).customerId).toBe(customerId);
+    expect(await prisma.customer.count({where:{tenantId}})).toBe(count);
+  });
+
+  it("keeps alternative plan prices separate and invoices only accepted options",async()=>{
+    const quote=await createSalesDocument(tenantId,actorId,input({alternativePlans:true,items:[{description:"50 Mbps",quantity:1,unitPrice:500,discount:0,gstRate:18},{description:"100 Mbps",quantity:1,unitPrice:900,discount:0,gstRate:18}]}));
+    expect(Number(quote.grandTotal)).toBe(0);expect((quote.totals as {grandTotal:string}).grandTotal).toBe("0.00");
+    expect((await emailSalesDocument(tenantId,quote.id)).to).toContain("customer@example.test");
+    const {buffer}=await buildSalesDocumentPdfBuffer(tenantId,quote.id);expect(buffer.subarray(0,5).toString()).toBe("%PDF-");writeFileSync("output/pdf/quotation-options-preview.pdf",buffer);
+    await expect(convertSalesDocument(tenantId,actorId,quote.id,conversion(1))).rejects.toThrow(/accepted plan/);
+    await expect(convertSalesDocument(tenantId,actorId,quote.id,{...conversion(1),selectedItemIndexes:[7]})).rejects.toThrow(/accepted plan/);
+    const result=await convertSalesDocument(tenantId,actorId,quote.id,{...conversion(1),selectedItemIndexes:[1]});
+    const invoice=await prisma.invoice.findUniqueOrThrow({where:{id:result.id},include:{items:true}});
+    expect(invoice.items).toHaveLength(1);expect(invoice.items[0].description).toBe("100 Mbps");expect(Number(invoice.grandTotal)).toBe(1062);
+  });
   it("records SMTP failure without changing the open document or creating an invoice", async () => {
     await new Promise<void>(resolve => mailServer.close(() => resolve()));
     const quote = await createSalesDocument(tenantId, actorId, input());
@@ -137,4 +162,5 @@ suite("quotation and proforma sales workflow", () => {
     expect(await prisma.invoice.count({ where: { tenantId } })).toBe(before);
     expect(await prisma.notificationLog.findFirst({ where: { tenantId, refId: quote.id, status: "FAILED" } })).not.toBeNull();
   });
+
 });

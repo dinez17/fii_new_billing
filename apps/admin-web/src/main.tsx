@@ -22,6 +22,7 @@ import { NewInvoicePage } from "./features/invoices/NewInvoicePage";
 import { SalesDocumentsPage } from "./features/quotations/SalesDocumentsPage";
 import { SalesDocumentForm } from "./features/quotations/SalesDocumentForm";
 import { NotesPage } from "./features/notes/NotesPage";
+import { TdsReport } from "./features/payments/TdsReport";
 import { PaymentsPage } from "./features/payments/PaymentsPage";
 import { FinancialControlsPage } from "./features/accounting/FinancialControlsPage";
 import { BillingRunsPage } from "./features/billing-runs/BillingRunsPage";
@@ -91,6 +92,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/invoices/new" element={<ProtectedRoute permission="invoice:create"><NewInvoicePage /></ProtectedRoute>} />
             <Route path="/invoices/:id/edit" element={<ProtectedRoute permission="invoice:update"><NewInvoicePage /></ProtectedRoute>} />
             <Route path="/notes" element={<ProtectedRoute permission="credit_note:read"><NotesPage /></ProtectedRoute>} />
+            <Route path="/reports/tds" element={<ProtectedRoute permission="payment:read"><TdsReport /></ProtectedRoute>} />
             <Route path="/payments" element={<ProtectedRoute permission="payment:read"><PaymentsPage /></ProtectedRoute>} />
             <Route path="/billing-runs" element={<ProtectedRoute permission="billing_run:read"><BillingRunsPage /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute permission="notification_template:read"><NotificationsPage /></ProtectedRoute>} />
@@ -122,6 +124,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/tasks" element={<ProtectedRoute permission="task:read"><TasksPage /></ProtectedRoute>} />
             <Route path="/customers" element={<ProtectedRoute permission="customer:read"><CustomersPage /></ProtectedRoute>} />
             <Route path="/plans" element={<ProtectedRoute permission="plan:read"><PlansPage /></ProtectedRoute>} />
+            <Route path="/subscribers/new" element={<ProtectedRoute permission="subscriber:create"><SubscribersPage key="subscriber-new" /></ProtectedRoute>} />
+            <Route path="/subscribers/:id/edit" element={<ProtectedRoute permission="subscriber:update"><SubscribersPage key="subscriber-edit" /></ProtectedRoute>} />
             <Route path="/subscribers" element={<ProtectedRoute permission="subscriber:read"><SubscribersPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute permission="settings:read"><SettingsPage /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute permission="user:read"><UsersPage /></ProtectedRoute>} />

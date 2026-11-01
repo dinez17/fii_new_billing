@@ -44,7 +44,8 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build",
     "test:watch": "vitest",
     "loadtest:seed": "tsx scripts/loadtest/seed-subscribers.ts",
-    "loadtest": "k6 run scripts/loadtest/api.js"
+    "loadtest": "k6 run scripts/loadtest/api.js",
+    "test:pwa": "node scripts/browser/pwa-update.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

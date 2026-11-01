@@ -88,17 +88,17 @@ export function PurchaseOrdersPage() {
 
   return (
     <>
-      <h2 className="page-title">Purchase Orders</h2>
+      <div className="page-heading"><h2 className="page-title">Purchase Orders</h2><div className="page-heading-actions">{hasPerm("purchase_order:create") && (
+          <button className="primary" onClick={() => navigate("/purchase-orders/new")}>+ New PO</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <select aria-label="Purchase order status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option>{["DRAFT", "SENT", "PARTIAL_RECEIVED", "RECEIVED", "CLOSED", "CANCELLED"].map((value) => <option key={value}>{value}</option>)}</select>
         <TransactionFilters period={period} />
-        <input style={{ width: 260 }} placeholder="Search PO / supplier…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 260 }} placeholder="Search PO / supplier…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
-        {hasPerm("purchase_order:create") && (
-          <button className="primary" onClick={() => navigate("/purchase-orders/new")}>+ New PO</button>
-        )}
+
       </div>
 
       <table>

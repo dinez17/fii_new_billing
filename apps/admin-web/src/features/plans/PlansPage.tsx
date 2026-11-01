@@ -58,13 +58,13 @@ export function PlansPage() {
 
   return (
     <>
-      <h2 className="page-title">Plans</h2>
+      <div className="page-heading"><h2 className="page-title">Plans</h2><div className="page-heading-actions">{hasPerm("plan:create") && (
+          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Plan</button>
+        )}</div></div>
       <div className="toolbar">
         <div className="spacer" />
         {hasPerm("plan:create") && <BulkImport kind="plans" />}
-        {hasPerm("plan:create") && (
-          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Plan</button>
-        )}
+
       </div>
 
       <ListTable>

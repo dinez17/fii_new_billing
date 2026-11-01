@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import { runInNewContext } from "node:vm";
 import { mobileHeaderLabels } from "../src/responsive-tables.js";
 import { pwaBuild, serviceWorkerSource } from "../src/pwa-build.js";
@@ -73,4 +76,17 @@ describe("PWA privacy and lifecycle", () => {
     expect(caches.delete).toHaveBeenCalledWith("fii-tenant-shell-old"); expect(caches.delete).not.toHaveBeenCalledWith("other-app");
     expect(self.skipWaiting).not.toHaveBeenCalled(); handlers.message({ data: { type: "SKIP_WAITING" } }); expect(self.skipWaiting).toHaveBeenCalledOnce();
   });
+});
+
+describe("PWA cache version content",()=>{
+ it("changes when emitted contents change even if file names are unchanged",()=>{
+  const build=(code:string)=>{const files:Record<string,string>={};const plugin=pwaBuild("tenant");plugin.generateBundle.call({emitFile:(asset:any)=>{files[asset.fileName]=asset.source;}},{},{"assets/app.js":{fileName:"assets/app.js",code}});return files["sw.js"];};
+  expect(build("first")).not.toBe(build("second"));expect(build("first")).toBe(build("first"));
+ });
+});
+
+it("changes the worker version when a public PWA icon changes",()=>{
+ const dir=mkdtempSync(join(tmpdir(),"fii-pwa-icons-"));try{mkdirSync(join(dir,"pwa"));for(const name of ["192","512","maskable","180"])writeFileSync(join(dir,"pwa",`vaniga-tenant-${name}.png`),"first");
+ const build=()=>{const files:Record<string,string>={};const plugin=pwaBuild("tenant");plugin.configResolved({publicDir:dir});plugin.generateBundle.call({emitFile:(asset:any)=>{files[asset.fileName]=asset.source;}},{},{});return files["sw.js"];};const before=build();writeFileSync(join(dir,"pwa","vaniga-tenant-192.png"),"changed");expect(build()).not.toBe(before);
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });

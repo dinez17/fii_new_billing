@@ -86,7 +86,9 @@ export function TasksPage() {
 
   return (
     <>
-      <h2 className="page-title">Tasks</h2>
+      <div className="page-heading"><h2 className="page-title">Tasks</h2><div className="page-heading-actions">{hasPerm("task:create") && (
+          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Task</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <select style={{ width: 150 }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
@@ -98,9 +100,7 @@ export function TasksPage() {
           {employees.data?.map((emp) => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
         </select>
         <div className="spacer" />
-        {hasPerm("task:create") && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ New Task</button>
-        )}
+
       </div>
 
       <table>

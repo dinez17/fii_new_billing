@@ -86,17 +86,17 @@ export function PurchaseInvoicesPage() {
 
   return (
     <>
-      <h2 className="page-title">Purchase Invoices</h2>
+      <div className="page-heading"><h2 className="page-title">Purchase Invoices</h2><div className="page-heading-actions">{hasPerm("purchase_invoice:create") && (
+          <button className="primary" onClick={() => navigate("/purchases/new")}>+ New Purchase Bill</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
         <select aria-label="Purchase invoice status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="OUTSTANDING">Unpaid + partially paid</option><option value="">All statuses</option><option>UNPAID</option><option>PARTIAL</option><option>PAID</option><option>CANCELLED</option></select>
         <TransactionFilters period={period} />
-        <input style={{ width: 260 }} placeholder="Search number / bill / supplier…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 260 }} placeholder="Search number / bill / supplier…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
-        {hasPerm("purchase_invoice:create") && (
-          <button className="primary" onClick={() => navigate("/purchases/new")}>+ New Purchase Bill</button>
-        )}
+
       </div>
 
       <table>

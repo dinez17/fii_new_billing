@@ -71,15 +71,15 @@ export function UsersPage() {
 
   return (
     <>
-      <h2 className="page-title">Users</h2>
+      <div className="page-heading"><h2 className="page-title">Users</h2><div className="page-heading-actions">{hasPerm("user:create") && (
+          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New User</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 260 }} placeholder="Search name or email…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 260 }} placeholder="Search name or email…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
-        {hasPerm("user:create") && (
-          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New User</button>
-        )}
+
       </div>
 
       {!form && error && <div className="error">{error}</div>}

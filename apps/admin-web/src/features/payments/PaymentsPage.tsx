@@ -1,5 +1,5 @@
+import {WriteOffModal} from "../invoices/WriteOffModal";
 import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
-import { TdsReport } from "./TdsReport";
 import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
@@ -25,7 +25,6 @@ const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFra
 export function PaymentsPage() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
-  const [showTds, setShowTds] = useState(false);
   const [reversing, setReversing] = useState<PaymentRow | null>(null);
   const [reverseReason, setReverseReason] = useState("");
   const reverse = useMutation({
@@ -37,6 +36,9 @@ export function PaymentsPage() {
   const period = useTransactionPeriod(() => setPage(1));
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [writeOffPicking,setWriteOffPicking]=useState(false);
+  const [writeOffInvoiceId,setWriteOffInvoiceId]=useState("");
+  const [writeOffInvoice,setWriteOffInvoice]=useState<OpenInvoice|null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -45,7 +47,7 @@ export function PaymentsPage() {
     tdsAmount: "",
     tdsSection: "",
     tdsAllocations: {} as Record<string, string>,
-    mode: "CASH", financialAccountId: "",
+    mode: "BANK_TRANSFER", financialAccountId: "",
     paymentDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
     reference: "",
     allocations: {} as Record<string, string>, // invoiceId → amount
@@ -70,7 +72,7 @@ export function PaymentsPage() {
       }
       return rows.filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
     },
-    enabled: creating && !!form.customerId,
+    enabled: (creating || writeOffPicking) && !!form.customerId,
   });
 
   const allocated = Object.values(form.allocations).reduce((s, v) => s + Number(v || 0), 0);
@@ -111,7 +113,7 @@ export function PaymentsPage() {
     },
     onSuccess: () => {
       setCreating(false); setError("");
-      setForm({ ...form, customerId: "", amount: "", tdsAmount: "", tdsSection: "", reference: "", allocations: {}, tdsAllocations: {} });
+      setForm({ ...form, mode:"BANK_TRANSFER", financialAccountId:"", customerId: "", amount: "", tdsAmount: "", tdsSection: "", reference: "", allocations: {}, tdsAllocations: {} });
       qc.invalidateQueries({ queryKey: ["payments"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["tds-report"] });
@@ -136,22 +138,20 @@ export function PaymentsPage() {
     } catch (err) { alert(errMessage(err)); }
   }
 
-  if (showTds) return <><button onClick={() => setShowTds(false)}>← Payments</button><TdsReport /></>;
 
   return (
     <>
-      <h2 className="page-title">Payments</h2>
+      <div className="page-heading"><h2 className="page-title">Payments</h2><div className="page-heading-actions">{hasPerm("payment:create") && (
+          <button className="primary" onClick={() => { setForm(current=>({...current,mode:"BANK_TRANSFER",financialAccountId:""})); setCreating(true); setError(""); }}>+ Record Payment</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 260 }} placeholder="Search customer / receipt / reference…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 260 }} placeholder="Search customer / receipt / reference…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <select aria-label="Payment status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option><option>SUCCESS</option><option>INITIATED</option><option>FAILED</option><option>REFUNDED</option></select>
         <TransactionFilters period={period} />
         <div className="spacer" />
-        <button onClick={() => setShowTds(true)}>TDS report</button>
-        {hasPerm("payment:create") && (
-          <button className="primary" onClick={() => { setCreating(true); setError(""); }}>+ Record Payment</button>
-        )}
+
       </div>
 
       <table>
@@ -191,6 +191,8 @@ export function PaymentsPage() {
         {reverse.isError && <div className="error">{errMessage(reverse.error)}</div>}
         <div className="actions"><button disabled={reverse.isPending} onClick={() => setReversing(null)}>Keep receipt</button><button disabled={reverse.isPending || reverseReason.trim().length < 10} onClick={() => reverse.mutate()}>Confirm reversal</button></div>
       </div></div>}
+      {writeOffPicking && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true"><h3>Select invoice to write off</h3><p>No money is received. The write-off records an expense and reduces the selected invoice balance.</p><label>Customer</label><EntitySelect kind="customers" value={form.customerId} onChange={id=>{setForm({...form,customerId:id});setWriteOffInvoiceId("");}}/><label htmlFor="write-off-invoice">Invoice</label><select id="write-off-invoice" value={writeOffInvoiceId} onChange={e=>setWriteOffInvoiceId(e.target.value)}><option value="">Select outstanding invoice</option>{openInvoices.data?.map(i=><option key={i.id} value={i.id}>{i.invoiceNumber} — {inr(invBalance(i))}</option>)}</select>{openInvoices.isError&&<div className="error">{errMessage(openInvoices.error)}</div>}<div className="actions"><button onClick={()=>setWriteOffPicking(false)}>Cancel</button><button disabled={!writeOffInvoiceId} onClick={()=>{const invoice=openInvoices.data?.find(i=>i.id===writeOffInvoiceId);if(invoice){setWriteOffInvoice(invoice);setWriteOffPicking(false);}}}>Continue write-off</button></div></div></div>}
+      {writeOffInvoice && <WriteOffModal invoice={{...writeOffInvoice,balance:String(invBalance(writeOffInvoice))}} close={()=>setWriteOffInvoice(null)}/>}
       {creating && (
         <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="payment-entry-title" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
@@ -210,18 +212,19 @@ export function PaymentsPage() {
             <p className="document-help">Enter actual money received separately. TDS is a non-cash settlement and must be allocated to invoices. Enter 0 received for a TDS-only entry. Settlement: {inr(amount + tds)}.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div>
-                <label>Mode</label>
-                <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
-                  <option>CASH</option><option>UPI</option><option>CHEQUE</option><option>BANK_TRANSFER</option><option>CARD</option>
+                <label htmlFor="payment-mode">Mode</label>
+                <select id="payment-mode" value={form.mode} onChange={(e) => {if(e.target.value==="WRITE_OFF"){setCreating(false);setWriteOffPicking(true);setWriteOffInvoiceId("");}else setForm({ ...form, mode: e.target.value,financialAccountId:"" });}}>
+                  <option>CASH</option><option>UPI</option><option>CHEQUE</option><option>BANK_TRANSFER</option><option>CARD</option>{hasPerm("credit_note:create")&&<option value="WRITE_OFF">Write-off (no money received)</option>}
                 </select>
               </div>
               <div><label>Date</label>
                 <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} /></div>
-              <MoneyAccountSelect value={form.financialAccountId} onChange={id=>setForm({...form,financialAccountId:id})} />
+              <MoneyAccountSelect mode={form.mode} label={form.mode==="CASH"?"Cash account":"Receiving bank account"} required={form.mode!=="CASH"&&amount>0} value={form.financialAccountId} onChange={id=>setForm({...form,financialAccountId:id})} />
               <div><label>Reference {amount > 0 && (form.mode === "CHEQUE" || form.mode === "BANK_TRANSFER") && "*"}</label>
                 <input placeholder="Cheque no / UTR" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
             </div>
 
+            <p className="document-help">Mode is how the customer paid. The account is where your business received the money—for example HDFC Current Account, SBI or Petty Cash. Add accounts in Settings → Cash / bank accounts.</p>
             {form.customerId && (
               <>
                 <div className="toolbar" style={{ marginTop: 12, marginBottom: 4 }}>
@@ -267,7 +270,7 @@ export function PaymentsPage() {
             <div className="actions">
               <button onClick={() => setCreating(false)}>Cancel</button>
               <button className="primary"
-                disabled={create.isPending || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
+                disabled={create.isPending || (form.mode!=="CASH"&&amount>0&&!form.financialAccountId) || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
                 onClick={() => create.mutate()}>
                 {create.isPending ? "Saving…" : "Record payment"}
               </button>

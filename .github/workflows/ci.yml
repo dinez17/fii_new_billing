@@ -41,6 +41,7 @@ jobs:
       - name: Install browser for regression checks
         run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser
+      - run: pnpm test:pwa
       - run: pnpm test:unit
       - run: pnpm audit --prod --audit-level high
 

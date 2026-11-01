@@ -36,11 +36,11 @@ async function smtpFor(tenantId: string): Promise<{ t: Transporter; from: string
 export async function emailSalesDocument(tenantId: string, id: string): Promise<{ to: string; cc?: string }> {
   const { buffer, document } = await buildSalesDocumentPdfBuffer(tenantId, id);
   if (document.status === "CANCELLED") throw badRequest("Cancelled documents cannot be emailed");
-  const to = customerMailRecipients(document.customer);
+  const to = customerMailRecipients(document.customer ?? document.prospect as {email:string});
   if (!to) throw badRequest("Add the customer's email address before sending this document");
   const title = document.kind === "QUOTATION" ? "Quotation" : "Proforma invoice";
   const subject = `${title} ${document.documentNumber}`;
-  const body = `Dear ${document.customer.name},\n\nPlease find attached ${title.toLowerCase()} ${document.documentNumber} for INR ${Number(document.grandTotal).toFixed(2)}. This is not a tax invoice.\n\nThank you.`;
+  const body = `Dear ${document.customer?.name ?? (document.prospect as {name:string}).name},\n\nPlease find attached ${title.toLowerCase()} ${document.documentNumber} ${document.alternativePlans ? "with alternative plan prices (no combined total)" : `for INR ${Number(document.grandTotal).toFixed(2)}`}. This is not a tax invoice.\n\nThank you.`;
   const company=await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}});
   const cc=companyMailCc(company.email,to);
   const smtp = await smtpFor(tenantId);

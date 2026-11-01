@@ -64,20 +64,19 @@ export function SuppliersPage() {
 
   return (
     <>
-      <h2 className="page-title">Suppliers</h2>
+      <div className="page-heading"><h2 className="page-title">Suppliers</h2><div className="page-heading-actions">{hasPerm("supplier:create") && (
+          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Supplier</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 260 }} placeholder="Search name / phone / code…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <PartyListFilters value={filters} onChange={(value) => { setFilters(value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 260 }} placeholder="Search name / phone / code…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <div className="spacer" />
-        {hasPerm("supplier:create") && (
-          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Supplier</button>
-        )}
+
       </div>
 
-      <div className="toolbar" style={{ flexWrap: "wrap" }}>
-        <PartyListFilters value={filters} onChange={(value) => { setFilters(value); setPage(1); }} />
-      </div>
+
       {suppliers.isError && <div className="error">{errMessage(suppliers.error)}</div>}
       <table>
         <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>GSTIN</th><th>Phone</th><th>Invoices</th><th style={{ textAlign: "right" }}>Current payable</th><th /></tr></thead>

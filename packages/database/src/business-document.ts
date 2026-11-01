@@ -6,8 +6,8 @@ export class BusinessDocumentError extends Error {}
 export async function loadBusinessDocument(tenantId:string,kind:BusinessDocumentKind,id:string,db:Prisma.TransactionClient=prisma){
  const invalid=()=>new BusinessDocumentError("Document unavailable, cancelled or outside this tenant");
  if(kind==="SALES_DOCUMENT"){
-  const d=await db.salesDocument.findFirst({where:{id,tenantId,status:{not:"CANCELLED"}},include:{customer:true}});if(!d||d.customer.tenantId!==tenantId)throw invalid();
-  return {kind,id,number:d.documentNumber,title:d.kind==="QUOTATION"?"Quotation":"Proforma invoice",date:d.documentDate,party:d.customer,partyType:"CUSTOMER" as const,status:d.status,total:d.grandTotal,reference:"",notes:d.notes??"",rows:[]};
+  const d=await db.salesDocument.findFirst({where:{id,tenantId,status:{not:"CANCELLED"}},include:{customer:true}});if(!d||(d.customer && d.customer.tenantId!==tenantId))throw invalid();
+  return {kind,id,number:d.documentNumber,title:d.kind==="QUOTATION"?"Quotation":"Proforma invoice",date:d.documentDate,party:d.customer ?? prospectParty(d.prospect),partyType:"CUSTOMER" as const,status:d.status,total:d.grandTotal,reference:"",notes:d.notes??"",rows:[]};
  }
  if(kind==="CREDIT_NOTE"||kind==="DEBIT_NOTE"){
   const delegate=kind==="CREDIT_NOTE"?db.creditNote:db.debitNote;
@@ -28,3 +28,5 @@ export async function loadBusinessDocument(tenantId:string,kind:BusinessDocument
  const products=await db.product.findMany({where:{tenantId,id:{in:items.map(i=>i.productId)}},select:{id:true,name:true,hsnSac:true}});
  return {kind,id,number:d.returnNumber,title:"Purchase return",date:d.returnDate,party:d.supplier,partyType:"SUPPLIER" as const,status:"ISSUED",total:d.total,reference:`Against: ${d.purchaseInvoice.ourNumber} / ${d.purchaseInvoice.billNumber}`,notes:d.reason??"",rows:items.map((i,index)=>({description:products.find(p=>p.id===i.productId)?.name??`Returned item ${index+1}`,hsn:products.find(p=>p.id===i.productId)?.hsnSac??"",quantity:Number(i.quantity??i.qty??0),rate:Number(i.unitPrice),taxRate:Number(i.gstRate),total:Number(i.quantity??i.qty??0)*Number(i.unitPrice)*(1+Number(i.gstRate)/100)}))};
 }
+
+function prospectParty(value: Prisma.JsonValue) { const p = value as {name:string;email:string;phone?:string}; if (!p?.name || !p.email) throw new BusinessDocumentError("Prospect contact details unavailable"); return {name:p.name,email:p.email,phone:p.phone??"",additionalEmails:[] as string[],gstin:null}; }

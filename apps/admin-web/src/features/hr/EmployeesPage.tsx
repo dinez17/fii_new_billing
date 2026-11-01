@@ -79,19 +79,19 @@ export function EmployeesPage() {
 
   return (
     <>
-      <h2 className="page-title">Employees</h2>
+      <div className="page-heading"><h2 className="page-title">Employees</h2><div className="page-heading-actions">{hasPerm("employee:create") && (
+          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Employee</button>
+        )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
-        <input style={{ width: 240 }} placeholder="Search name / code…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="filter-search-row"><input style={{ width: 240 }} placeholder="Search name / code…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
         <span style={{ color: "var(--muted)" }}>
           Departments: {departments.data?.map((d) => `${d.name} (${d._count.employees})`).join(" · ") || "none"}
         </span>
         <div className="spacer" />
         {hasPerm("department:create") && <button className="small" onClick={() => void addDepartment()}>+ Department</button>}
-        {hasPerm("employee:create") && (
-          <button className="primary" onClick={() => { setForm(EMPTY); setError(""); }}>+ New Employee</button>
-        )}
+
       </div>
 
       <table>

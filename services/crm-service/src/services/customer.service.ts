@@ -19,6 +19,7 @@ export async function listCustomers(
   tenantId: string,
   q: PartyListQuery,
 ) {
+  const balancesAccepted = await prisma.setting.findUnique({where:{tenantId_group_key:{tenantId,group:"LEGACY_IMPORT",key:"acceptedBalances"}}});
   const ranked = await rankParties(tenantId, "CUSTOMER", q);
   const items = await prisma.customer.findMany({
       where: { tenantId, id: { in: ranked.items.map((item) => item.id) } },
@@ -50,7 +51,7 @@ export async function listCustomers(
       return item ? [{ ...item, portalEnabled: item.portalEnabled && item.portalUser?.status === "ACTIVE", invoiceCount: rank.invoiceCount, subscriptionCount: rank.subscriptionCount,
       currentOutstanding: rank.outstanding.toFixed(2),
       ledgerOutstanding: rank.ledgerOutstanding.toFixed(2),
-      heldInvoiceCount: heldByParty.get(item.id) ?? 0,
+      heldInvoiceCount: balancesAccepted ? 0 : heldByParty.get(item.id) ?? 0,
     }] : [];
   }), total: ranked.total, page: q.page, limit: q.limit };
 }
@@ -157,4 +158,32 @@ export async function setPortalAccess(tenantId: string, id: string, enable: bool
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw conflict("That primary email is already used by another account in this tenant");
     throw error;
   }
+}
+
+/** Status is independent of legacy GST/contact validation. Deactivation revokes portal sessions. */
+export async function setCustomerStatus(tenantId:string,id:string,isActive:boolean,actorId:string) {
+ return prisma.$transaction(async tx=>{
+  await tx.$queryRaw`SELECT id FROM "Customer" WHERE id=${id} AND "tenantId"=${tenantId} FOR UPDATE`;
+  const current=await tx.customer.findFirst({where:{tenantId,id}});if(!current)throw notFound("Customer");
+  const result=await tx.customer.update({where:{id},data:{isActive,...(!isActive?{portalEnabled:false}:{})}});
+  if(!isActive){const users=await tx.user.findMany({where:{tenantId,customerId:id,userType:"CUSTOMER"},select:{id:true}});
+   await tx.user.updateMany({where:{id:{in:users.map(u=>u.id)}},data:{status:"INACTIVE"}});
+   await tx.refreshToken.updateMany({where:{userId:{in:users.map(u=>u.id)},revokedAt:null},data:{revokedAt:new Date()}});
+  }
+  await tx.auditLog.create({data:{tenantId,userId:actorId,action:"CUSTOMER_STATUS_UPDATED",entity:"Customer",entityId:id,before:{isActive:current.isActive},after:{isActive}}});return result;
+ });
+}
+export async function deleteInactiveCustomer(tenantId:string,id:string,actorId:string) {
+ try{return await prisma.$transaction(async tx=>{
+  await tx.$queryRaw`SELECT id FROM "Customer" WHERE id=${id} AND "tenantId"=${tenantId} FOR UPDATE`;
+  const customer=await tx.customer.findFirst({where:{tenantId,id},include:{_count:{select:{invoices:true,payments:true,subscribers:true,salesDocuments:true,complaints:true}}}});
+  if(!customer)throw notFound("Customer");if(customer.isActive)throw badRequest("Deactivate the customer before deletion");
+  if(!customer.openingBalance.isZero()||await tx.ledgerEntry.count({where:{tenantId,partyType:"CUSTOMER",partyId:id}}))throw conflict("Customer has an opening balance or ledger transactions and cannot be deleted");
+  if(Object.values(customer._count).some(n=>n>0))throw conflict("Customer is linked to business documents or subscriptions; retain as inactive");
+  const users=await tx.user.findMany({where:{tenantId,customerId:id,userType:"CUSTOMER"},select:{id:true}});
+  await tx.refreshToken.updateMany({where:{userId:{in:users.map(u=>u.id)},revokedAt:null},data:{revokedAt:new Date()}});
+  await tx.user.updateMany({where:{id:{in:users.map(u=>u.id)}},data:{customerId:null,status:"INACTIVE"}});
+  await tx.auditLog.create({data:{tenantId,userId:actorId,action:"CUSTOMER_DELETED",entity:"Customer",entityId:id,before:{code:customer.code,name:customer.name,isActive:false}}});
+  await tx.customer.delete({where:{id}});return {deleted:true};
+ },{isolationLevel:"Serializable"});}catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==="P2003")throw conflict("Customer is linked to business records; retain as inactive");throw error;}
 }

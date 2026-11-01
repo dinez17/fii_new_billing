@@ -60,6 +60,7 @@ const NAV: NavEntry[] = isPlatformConsole ? [
       { path: "/ledger/suppliers", label: "Supplier Ledger", permission: "report:read" },
       { path: "/reports/sales", label: "Sales Report", permission: "report:read" },
       { path: "/reports/purchases", label: "Purchase Report", permission: "report:read" },
+      { path: "/reports/tds", label: "TDS Report", permission: "payment:read" },
       { path: "/reports/collections", label: "Collections", permission: "report:read" },
       { path: "/reports/outstanding", label: "Outstanding", permission: "report:read" },
       { path: "/reports/profit-loss", label: "Profit & Loss", permission: "report:read" },

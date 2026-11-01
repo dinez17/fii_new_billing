@@ -18,7 +18,7 @@ export function LegacyImportTab() {
   const user = useAuth((state) => state.user?.id);
   const [status, setStatus] = useState("REVIEW"), [sourceTable, setTable] = useState(""), [search, setSearch] = useState(""), [page, setPage] = useState(1), [detailId, setDetail] = useState<string | null>(null);
   const [pageSize, setPageSize] = usePageSize(() => setPage(1));
-  const summary = useQuery({ queryKey: ["legacy-summary", user], queryFn: async () => (await api.get("/settings/legacy-imports/summary")).data as { manifest: Manifest | null; groups: { sourceTable: string; status: string; count: number }[] } });
+  const summary = useQuery({ queryKey: ["legacy-summary", user], queryFn: async () => (await api.get("/settings/legacy-imports/summary")).data as { balancesAccepted:boolean; manifest: Manifest | null; groups: { sourceTable: string; status: string; count: number }[] } });
   const records = useQuery({ queryKey: ["legacy-records", user, status, sourceTable, search, page, pageSize], queryFn: async () => (await api.get("/settings/legacy-imports/records", { params: { status: status || undefined, sourceTable: sourceTable || undefined, search: search || undefined, page, limit: pageSize } })).data as { items: LegacyRow[]; total: number; limit: number } });
   const detail = useQuery({ queryKey: ["legacy-detail", user, detailId], queryFn: async () => (await api.get(`/settings/legacy-imports/records/${detailId}`)).data as LegacyRow & { data: Record<string, unknown> }, enabled: !!detailId });
   async function saveApproval() {
@@ -35,7 +35,8 @@ export function LegacyImportTab() {
     <div className="card"><h3>Legacy import</h3>
       {summary.isPending && <p>Loading import summary…</p>}{summary.isError && <div className="error">{errMessage(summary.error)}</div>}
       {manifest ? <><p>{manifest.name} · Financial years: {manifest.financialYears.join(", ")}</p>
-        <div className="error" role="status">Historical financial reports include only imported documents. Held documents and their receipts are excluded until corrected. Do not use these reports as a complete historical closing balance yet.</div>
+        {!summary.data?.balancesAccepted && <div className="error" role="status">Historical financial reports include only imported documents. Held documents and their receipts are excluded until corrected. Do not use these reports as a complete historical closing balance yet.</div>}
+        {summary.data?.balancesAccepted ? <p>Current balances accepted. Held source records remain archived below and excluded from accounts.</p> : canApprove && <button onClick={async()=>{try {await api.post("/settings/legacy-imports/accept-balances",{confirm:true});await summary.refetch();}catch(e){setReviewError(errMessage(e));}}}>Accept current balances and dismiss warning</button>}
         <p>{manifest.nativeCounts.customer ?? 0} customers · {manifest.nativeCounts.supplier ?? 0} suppliers · {manifest.nativeCounts.product ?? 0} products · {manifest.nativeCounts.invoice ?? 0} invoices · {manifest.nativeCounts.payment ?? 0} payments</p>
         <p>To approve a document, select user_bills (sales) or user_purchase_bills (purchases), then use its check icon. Approval records your review; the invoice and receipts remain excluded until a reconciled import is completed.</p>
         <p>{Object.keys(manifest.heldDocuments).length} financial documents held for review. Original source records are preserved below.</p>
@@ -45,7 +46,7 @@ export function LegacyImportTab() {
         <RowsPerPage value={pageSize} onChange={setPageSize} />
       <select aria-label="Legacy record status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option><option>REVIEW</option><option>IMPORTED</option><option>ARCHIVED</option></select>
       <select aria-label="Legacy source table" value={sourceTable} onChange={(e) => { setTable(e.target.value); setPage(1); }}><option value="">All source tables</option>{[...new Set(summary.data?.groups.map((group) => group.sourceTable))].sort().map((table) => <option key={table}>{table}</option>)}</select>
-      <input aria-label="Search legacy ID or reason" placeholder="Search old ID / review reason" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+      <div className="filter-search-row"><input aria-label="Search legacy ID or reason" placeholder="Search old ID / review reason" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
       {canApprove && <IconButton icon="check" label="Approve all held invoices" onClick={() => { setBulk(true); setNote(""); setReviewError(""); }} />}
       <span>{records.data?.total ?? 0} records</span>
     </div>

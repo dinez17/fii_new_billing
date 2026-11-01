@@ -627,8 +627,10 @@ model SalesDocument {
   kind String // QUOTATION | PROFORMA
   documentNumber String
   fyCode String
-  customerId String
-  customer Customer @relation(fields: [customerId], references: [id])
+  customerId String?
+  customer Customer? @relation(fields: [customerId], references: [id])
+  prospect Json?
+  alternativePlans Boolean @default(false)
   documentDate DateTime
   validUntil DateTime
   chargeGst Boolean @default(true)
