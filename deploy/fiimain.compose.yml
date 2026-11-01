@@ -5,3 +5,12 @@ services:
     command: ["pnpm", "--filter", "@fii/database", "exec", "prisma", "migrate", "deploy"]
   caddy:
     profiles: [bundled-proxy]
+
+  # WAPI is served by this host's nginx. Keep hostname/SNI and TLS verification,
+  # while avoiding the router's unsupported public-IP hairpin connection.
+  settings-service:
+    extra_hosts:
+      - "wapi.fiitech.in:host-gateway"
+  notification-worker:
+    extra_hosts:
+      - "wapi.fiitech.in:host-gateway"
