@@ -179,7 +179,7 @@ export async function listInvoices(tenantId: string, q: ListQuery) {
   const [items, total, sums] = await Promise.all([
     prisma.invoice.findMany({
       where:{AND:[where,{id:{in:ids}}]},
-      include: { customer: { select: { id: true, name: true, phone: true } } },
+      include: { customer: { select: { id: true, name: true, phone: true, whatsappInvoiceEnabled: true } } },
     }),
     prisma.invoice.count({ where }),
     prisma.invoice.aggregate({

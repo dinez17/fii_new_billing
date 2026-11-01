@@ -29,10 +29,14 @@ try {
   for (const width of [390,1280]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
-    let reverseBody, journalBody, conversionBody, statementBody;
+    let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
       let data = { items:[], total:0, limit:20 };
+      if(path === "/settings/group/WHATSAPP") { if(request.method()==="PUT")whatsappSettingsBody=request.postDataJSON();data={apiUrl:whatsappSettingsBody?.apiUrl??"https://wapi.fiitech.in",provider:"FII_WAPI",enabled:whatsappSettingsBody?.enabled??"false",apiKey:whatsappSettingsBody?"••••••••":"",deviceId:whatsappSettingsBody?.deviceId??""}; }
+      if(path === "/settings/whatsapp/test")data={connected:true,credits:100,devices:[{id:7,name:"Main",isReady:true}]};
+      if(path === "/invoices")data={items:[{id:"wa-invoice",invoiceNumber:"FII/26-27/99",invoiceDate:"2026-11-01",dueDate:"2026-11-10",grandTotal:"100",amountPaid:"0",balance:"100",status:"UNPAID",chargeGst:true,customer:{id:"c",name:"WhatsApp customer",whatsappInvoiceEnabled:true}},{id:"email-only",invoiceNumber:"FII/26-27/98",invoiceDate:"2026-11-01",dueDate:"2026-11-10",grandTotal:"100",amountPaid:"0",balance:"100",status:"UNPAID",chargeGst:true,customer:{id:"c2",name:"Email customer",whatsappInvoiceEnabled:false}}],total:2};
+      if(path === "/invoices/wa-invoice/whatsapp"){whatsappBody=request.postDataJSON();data={status:"QUEUED"};}
       if(path === "/sales-documents") data={items:[{id:"quote",kind:"QUOTATION",documentNumber:"Q-001",documentDate:"2026-10-31",validUntil:"2026-11-15",grandTotal:"118",status:"OPEN",chargeGst:true,version:7,customer:{name:"Sample Customer"}}],total:1};
       if(path === "/sales-documents/quote/convert"){conversionBody=request.postDataJSON();data={id:"converted",kind:"PROFORMA",number:"PF-001"};}
       if(path === "/sales-documents/converted")data={id:"converted",kind:"PROFORMA",documentNumber:"PF-001",documentDate:"2026-10-31",validUntil:"2026-11-15",grandTotal:"100",status:"OPEN",chargeGst:false,version:1,customerId:"customer",customer:{name:"Sample Customer"},items:[]};
@@ -113,6 +117,24 @@ try {
     await conversion.getByRole("button",{name:"Convert",exact:true}).click();
     await page.waitForURL("**/proformas/converted/edit");
     assert.equal(conversionBody.target,"PROFORMA");assert.equal(conversionBody.chargeGst,false);assert.equal(conversionBody.version,7);checks++;
+    await page.goto(`${base}/settings`);
+    await page.getByRole("button",{name:"WhatsApp",exact:true}).click();
+    await page.getByRole("checkbox",{name:"Enable WhatsApp"}).check();
+    await page.getByLabel("WhatsApp API URL",{exact:true}).fill("https://wapi.fiitech.in");
+    await page.locator('input[type="password"]').fill("test-browser-key");
+    await page.locator('input[inputmode="numeric"]').fill("7");
+    await page.getByRole("button",{name:"Save",exact:true}).click();
+    await page.getByText("WhatsApp settings saved.",{exact:true}).waitFor();
+    assert.equal(whatsappSettingsBody.apiUrl,"https://wapi.fiitech.in");assert.equal(whatsappSettingsBody.enabled,"true");assert.equal(whatsappSettingsBody.deviceId,"7");assert.equal(whatsappSettingsBody.apiKey,"test-browser-key");
+    await page.getByRole("button",{name:"Check connection",exact:true}).click();
+    await page.getByText("Connection successful.",{exact:false}).waitFor();checks++;
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await page.goto(`${base}/invoices`);
+    await page.getByRole("button",{name:"Send invoice on WhatsApp",exact:true}).waitFor();
+    assert.equal(await page.getByRole("button",{name:"Send invoice on WhatsApp",exact:true}).count(),1);
+    const acceptDialog=dialog=>dialog.accept();page.on("dialog",acceptDialog);
+    await page.getByRole("button",{name:"Send invoice on WhatsApp",exact:true}).click();
+    await page.waitForTimeout(100);assert.match(whatsappBody.requestId,/^[0-9a-f-]{36}$/i);page.off("dialog",acceptDialog);checks++;
     await page.goto(`${base}/financial-controls`);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1));
     await page.evaluate(() => window.scrollTo(0,0));

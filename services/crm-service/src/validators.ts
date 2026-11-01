@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { partyListFilters } from "@fii/common";
+import { partyListFilters, normalizeWhatsappPhone } from "@fii/common";
 
 export const pagination = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -9,6 +9,8 @@ export const pagination = z.object({
 export const customerListQuery = pagination.extend(partyListFilters);
 
 export const customerBody = z.object({
+  whatsappInvoiceEnabled: z.boolean().optional(),
+  whatsappPhone: z.string().trim().max(30).nullable().optional().refine(value=>!value||!!normalizeWhatsappPhone(value),"Enter a valid WhatsApp number with country code").transform(value=>value===undefined?undefined:normalizeWhatsappPhone(value)),
   additionalEmails: z.array(z.string().trim().email()).max(10).optional(),
   stateName: z.string().trim().max(80).optional(),
   installationCity: z.string().trim().max(80).optional(),

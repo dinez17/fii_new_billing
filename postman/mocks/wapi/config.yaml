@@ -1,0 +1,10 @@
+version: 1
+id: 9fa1d0cc-6acb-40f0-a19f-880fdb584bc5
+name: FII WAPI invoice integration subset
+slug: fii-wapi-invoice-integration-sub
+protocol: http
+port: 4500
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

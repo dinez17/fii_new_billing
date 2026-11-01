@@ -2,7 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z, type ZodTypeAny } from "zod";
-import { AppError, NON_GST_COMPANY_FIELDS, nonGstCompanySchema, badRequest, createLogger, encryptSecret, isValidGstin, notFound, httpMetrics, mountOps } from "@fii/common";
+import { decryptSecret, wapiClient, whatsappSettingsSchema, AppError, NON_GST_COMPANY_FIELDS, nonGstCompanySchema, badRequest, createLogger, encryptSecret, isValidGstin, notFound, httpMetrics, mountOps } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
 import { prisma } from "@fii/database";
 import { getTenantLicense } from "./license.service.js";
@@ -161,7 +161,7 @@ const SETTING_GROUPS: Record<string, { keys: string[]; secrets: string[] }> = {
   GATEWAY_CASHFREE: { keys: ["appId", "secretKey", "webhookSecret", "enabled"], secrets: ["secretKey", "webhookSecret"] },
   SMTP: { keys: ["host", "port", "user", "password", "fromEmail", "fromName", "enabled"], secrets: ["password"] },
   SMS: { keys: ["provider", "apiKey", "senderId", "enabled"], secrets: ["apiKey"] },
-  WHATSAPP: { keys: ["provider", "apiKey", "phoneNumberId", "enabled"], secrets: ["apiKey"] },
+  WHATSAPP: { keys: ["provider", "apiUrl", "apiKey", "deviceId", "enabled"], secrets: ["apiKey"] },
 };
 
 const groupBody = z.record(z.string(), z.string());
@@ -182,6 +182,13 @@ app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:updat
   if (req.params.group === "NON_GST_COMPANY") {
     const previous = await prisma.setting.findMany({ where: { tenantId: req.auth!.tenantId, group: "NON_GST_COMPANY" } });
     body = parse(nonGstCompanySchema, { ...Object.fromEntries(previous.map(row => [row.key, row.value])), ...body });
+  }
+  if (req.params.group === "WHATSAPP") {
+    const previous = await prisma.setting.findMany({where:{tenantId:req.auth!.tenantId,group:"WHATSAPP"}});
+    const merged = {...Object.fromEntries(previous.map(row=>[row.key,row.isSecret ? "••••••••" : row.value])),...body};
+    if (body.apiKey === "" && previous.some(row=>row.key === "apiKey" && row.isSecret && row.value)) merged.apiKey = "••••••••";
+    body = parse(whatsappSettingsSchema, merged);
+    if (body.enabled === "true" && (!body.apiKey || (body.apiKey === "••••••••" && !previous.some(row=>row.key === "apiKey" && row.isSecret && row.value)))) throw badRequest("Save a WAPI API key before enabling WhatsApp");
   }
   const writes = [];
   for (const [key, value] of Object.entries(body)) {
@@ -210,6 +217,13 @@ app.put("/api/v1/settings/group/:group", authenticate, authorize("settings:updat
   }
   await prisma.$transaction(writes);
   res.json({ ok: true });
+}));
+
+app.post("/api/v1/settings/whatsapp/test", authenticate, authorize("settings:update"), h(async(req,res)=>{
+  const rows=await prisma.setting.findMany({where:{tenantId:req.auth!.tenantId,group:"WHATSAPP"}});
+  const cfg=Object.fromEntries(rows.map(row=>[row.key,row.isSecret?decryptSecret(row.value):row.value]));
+  try { res.json(await wapiClient({apiUrl:cfg.apiUrl,apiKey:cfg.apiKey,deviceId:cfg.deviceId?Number(cfg.deviceId):undefined}).connection()); }
+  catch { throw badRequest("WAPI connection failed. Check the saved API key and connected device in the provider dashboard."); }
 }));
 
 // ── Number series
@@ -278,11 +292,12 @@ app.post("/api/v1/notification-logs/:id/retry", authenticate, authorize("setting
   const tenantId = req.auth!.tenantId;
   const result = await prisma.$transaction(async tx => {
     const row = await tx.notificationLog.findFirst({ where: { id: req.params.id, tenantId } });
-    if (!row || row.channel !== "EMAIL" || row.status !== "FAILED") throw badRequest("Only failed email notifications can be retried");
+    if (!row || !["EMAIL","WHATSAPP"].includes(row.channel) || row.status !== "FAILED") throw badRequest("Only failed email or WhatsApp notifications can be retried");
+    if(row.channel === "WHATSAPP" && req.body?.confirmProviderChecked !== true) throw badRequest("Check WAPI message history first and confirm that resending will not duplicate a message");
     const changed = await tx.notificationLog.updateMany({ where: { id: row.id, tenantId, status: "FAILED", OR: [{ lockedUntil: null }, { lockedUntil: { lt: new Date() } }] },
-      data: { status: "QUEUED", nextAttemptAt: new Date(), lockedUntil: null, attempts: 0, error: null } });
+      data: { status: "QUEUED", nextAttemptAt: new Date(), lockedUntil: null, attempts: 0, error: null, ...(row.channel === "WHATSAPP" ? {requiresReview:false,providerMessageId:null,providerStatus:null,providerPolls:0} : {}) } });
     if (!changed.count) throw badRequest("Notification is already being retried");
-    await tx.auditLog.create({ data: { tenantId, userId: req.auth!.sub, action: "NOTIFICATION_RETRY_REQUESTED", entity: "NotificationLog", entityId: row.id, after: { previousAttempts: row.attempts } } });
+    await tx.auditLog.create({ data: { tenantId, userId: req.auth!.sub, action: "NOTIFICATION_RETRY_REQUESTED", entity: "NotificationLog", entityId: row.id, after: { previousAttempts: row.attempts, previousProviderMessageId:row.providerMessageId, providerHistoryChecked:row.channel === "WHATSAPP" } } });
     return { queued: true };
   });
   res.json(result);

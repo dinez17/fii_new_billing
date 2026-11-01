@@ -27,4 +27,15 @@ suite("customer contacts and separate installation address", () => {
     await updateCustomer(tenantId, customerId, { additionalEmails: [] });
     expect((await prisma.customer.findUniqueOrThrow({ where: { id: customerId } })).additionalEmails).toEqual([]);
   });
+  it("enables WhatsApp invoice selection only with a valid destination and keeps other customers off",async()=>{
+    await expect(updateCustomer(tenantId,customerId,{whatsappInvoiceEnabled:true,phone:null,whatsappPhone:null})).rejects.toThrow("valid WhatsApp");
+    await updateCustomer(tenantId,customerId,{whatsappInvoiceEnabled:true,whatsappPhone:"919876543210"});
+    expect(await prisma.customer.findUniqueOrThrow({where:{id:customerId}})).toMatchObject({whatsappInvoiceEnabled:true,whatsappPhone:"919876543210"});
+    await updateCustomer(tenantId,customerId,{name:"Updated customer"});
+    expect((await prisma.customer.findUniqueOrThrow({where:{id:customerId}})).whatsappInvoiceEnabled).toBe(true);
+    await expect(updateCustomer("different-tenant",customerId,{whatsappInvoiceEnabled:false})).rejects.toThrow("Customer not found");
+    await updateCustomer(tenantId,customerId,{whatsappInvoiceEnabled:false});
+    expect((await prisma.customer.findUniqueOrThrow({where:{id:customerId}})).whatsappInvoiceEnabled).toBe(false);
+  });
+
 });

@@ -1,3 +1,4 @@
+import {deliverWhatsappNotification} from "./whatsapp.js";
 import nodemailer, { type Transporter, type SendMailOptions } from "nodemailer";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
 import { prisma } from "@fii/database";
@@ -65,7 +66,7 @@ export async function dispatch(req: SendRequest): Promise<void> {
     return;
   }
 
-  for (const tpl of templates) {
+  for (const tpl of templates.filter(t=>t.channel!=="WHATSAPP")) {
     const body = render(tpl.body, req.vars);
     const subject = tpl.subject ? render(tpl.subject, req.vars) : undefined;
 
@@ -95,6 +96,8 @@ export async function dispatch(req: SendRequest): Promise<void> {
 
 /** Lease each channel separately; a failed channel never resends another channel. */
 export async function deliverNotification(id: string, suppliedAttachments?: SendRequest["attachments"], sender?: (mail: SendMailOptions) => Promise<unknown>) {
+  const notification=await prisma.notificationLog.findUnique({where:{id},select:{channel:true}});
+  if(notification?.channel==="WHATSAPP"){await deliverWhatsappNotification(id);return;}
   const now = new Date();
   const claimed = await prisma.notificationLog.updateMany({ where: { id, status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 },
     AND: [{ OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] }, { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }] },
@@ -140,6 +143,9 @@ export async function retryNotifications(sender?: (mail: SendMailOptions) => Pro
   const now = new Date();
   await prisma.notificationLog.updateMany({ where: { channel: "EMAIL", status: "QUEUED", attempts: { gte: 5 }, lockedUntil: { lt: now } },
     data: { status: "FAILED", lockedUntil: null, nextAttemptAt: null, error: "Final delivery attempt was interrupted; verify provider delivery before manually retrying" } });
+  await prisma.notificationLog.updateMany({where:{channel:"WHATSAPP",status:"QUEUED",requiresReview:true,providerStatus:"SUBMITTING",lockedUntil:{lt:now}},data:{status:"FAILED",lockedUntil:null,nextAttemptAt:null,providerStatus:"UNKNOWN",error:"Interrupted WAPI submission; check provider history before resending"}});
+  const whatsapp=await prisma.notificationLog.findMany({where:{channel:"WHATSAPP",status:{in:["QUEUED","FAILED"]},requiresReview:false,nextAttemptAt:{lte:now},OR:[{lockedUntil:null},{lockedUntil:{lt:now}}]},take:20,orderBy:{createdAt:"asc"},select:{id:true}});
+  for(const item of whatsapp)await deliverWhatsappNotification(item.id);
   const rows = await prisma.notificationLog.findMany({ where: { channel: "EMAIL", attempts: { lt: 5 },
     OR: [{ status: "QUEUED", nextAttemptAt: { lte: now } }, { status: "FAILED", nextAttemptAt: { lte: now } }],
     AND: [{ OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] }] }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true } });

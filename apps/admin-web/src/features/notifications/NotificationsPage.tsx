@@ -10,6 +10,7 @@ interface Template {
 }
 interface LogRow {
   id: string; channel: string; to: string; templateCode?: string; subject?: string;
+  providerMessageId?:string; providerStatus?:string; requiresReview?:boolean;
   status: string; attempts: number; error?: string; sentAt?: string; createdAt: string;
 }
 
@@ -106,7 +107,7 @@ function LogsTab() {
   const [status, setStatus] = useState("");
   const qc = useQueryClient();
   const canRetry = useAuth(s => s.hasPerm("settings:update"));
-  const retry = useMutation({ mutationFn: async (id: string) => api.post(`/notification-logs/${id}/retry`), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["nlogs"] }); } });
+  const retry = useMutation({ mutationFn: async (id: string) => api.post(`/notification-logs/${id}/retry`,{confirmProviderChecked:true}), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["nlogs"] }); } });
 
   const logs = useQuery({
     queryKey: ["nlogs", page, status, pageSize],
@@ -125,7 +126,7 @@ function LogsTab() {
         </select>
       </div>
       {retry.isError && <div className="error">{errMessage(retry.error)}</div>}
-      <p>Emails retry automatically up to five attempts. Fix SMTP settings before retrying a failed message. SENT confirms SMTP acceptance, not inbox delivery.</p>
+      <p>Emails retry automatically up to five attempts. Fix SMTP settings before retrying a failed message. SENT confirms SMTP acceptance, not inbox delivery. WhatsApp SENT confirms the provider sent the message, not that it was read. Before resending a failed WhatsApp message, check WAPI history for duplicates.</p>
       <table>
         <thead><tr><th>Time</th><th>Channel</th><th>To</th><th>Template</th><th>Status</th><th>Error / attempts</th><th /></tr></thead>
         <tbody>
@@ -135,8 +136,8 @@ function LogsTab() {
               <td><span className="badge">{l.channel}</span></td>
               <td>{l.to}</td>
               <td><code>{l.templateCode ?? "—"}</code></td>
-              <td><span className={`badge ${l.status === "SENT" ? "ok" : l.status === "FAILED" ? "warn" : ""}`}>{l.status}</span></td>
-              <td style={{ maxWidth: 280, fontSize: 12, color: "var(--danger)" }}>{l.error ?? ""} · {l.attempts} attempt(s)</td><td>{canRetry && l.channel === "EMAIL" && l.status === "FAILED" && <button disabled={retry.isPending} onClick={() => retry.mutate(l.id)}>Retry</button>}</td>
+              <td><span className={`badge ${l.status === "SENT" ? "ok" : l.status === "FAILED" ? "warn" : ""}`}>{l.status}</span>{l.providerMessageId && <small> WAPI #{l.providerMessageId}</small>}{l.providerStatus && <small> · {l.providerStatus}</small>}</td>
+              <td style={{ maxWidth: 280, fontSize: 12, color: "var(--danger)" }}>{l.error ?? ""} · {l.attempts} attempt(s)</td><td>{canRetry && ["EMAIL","WHATSAPP"].includes(l.channel) && l.status === "FAILED" && <button disabled={retry.isPending} onClick={() => {if(l.channel!=="WHATSAPP" || confirm("Have you checked WAPI history and confirmed this invoice was not already sent? Resending may duplicate it."))retry.mutate(l.id);}}>Retry</button>}</td>
             </tr>
           ))}
           {logs.data && logs.data.items.length === 0 && (

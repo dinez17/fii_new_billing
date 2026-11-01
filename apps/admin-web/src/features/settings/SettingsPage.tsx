@@ -12,9 +12,12 @@ import { LegacyImportTab } from "./LegacyImportTab";
 import { FinancialControlsPage } from "../accounting/FinancialControlsPage";
 import { isPlatformConsole } from "../../lib/console";
 
-type Tab = "accounts" | "nonGst" | "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
+import {WhatsAppTab} from "./WhatsAppTab";
+
+type Tab = "whatsapp" | "accounts" | "nonGst" | "invoice" | "company" | "fy" | "series" | "terms" | "inventory" | "gateway" | "smtp" | "security" | "license" | "legacy";
 
 const TAB_LABELS: Record<Tab, string> = {
+  whatsapp: "WhatsApp",
   nonGst: "Without-GST company", invoice: "Invoice format", company: "Company profile", fy: "Financial years", series: "Number series",
   accounts: "Cash / bank accounts", license: "License",
   legacy: "Legacy import",
@@ -29,7 +32,7 @@ export function SettingsPage() {
     <>
       <h2 className="page-title">Settings</h2>
       <div className="toolbar">
-        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "accounts" || (!isPlatformConsole && canReadAccounts)) && (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "whatsapp" || !isPlatformConsole) && (t !== "accounts" || (!isPlatformConsole && canReadAccounts)) && (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
           <button key={t} className={tab === t ? "primary" : ""} onClick={() => setTab(t)}>
             {TAB_LABELS[t]}
           </button>
@@ -47,6 +50,7 @@ export function SettingsPage() {
       {tab === "inventory" && <InventoryTab />}
       {tab === "gateway" && <GatewayTab />}
       {tab === "smtp" && <SmtpTab />}
+      {tab === "whatsapp" && !isPlatformConsole && <WhatsAppTab />}
       {tab === "security" && <SecurityTab />}
     </>
   );

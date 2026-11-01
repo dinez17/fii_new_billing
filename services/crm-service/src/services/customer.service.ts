@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { Prisma, allocateNumber, forTenant, prisma, rankParties, type PartyListQuery } from "@fii/database";
-import { badRequest, conflict, isValidGstin, notFound } from "@fii/common";
+import { badRequest, normalizeWhatsappPhone, conflict, isValidGstin, notFound } from "@fii/common";
 import type { z } from "zod";
 import type { customerBody } from "../validators.js";
 
@@ -69,6 +69,7 @@ export async function getCustomer(tenantId: string, id: string) {
 
 export async function createCustomer(tenantId: string, input: CustomerInput) {
   validateGst(input);
+  if(input.whatsappInvoiceEnabled&&!normalizeWhatsappPhone(input.whatsappPhone||input.phone))throw badRequest("Set a valid WhatsApp number or customer phone before enabling invoice delivery");
   try {
     return await prisma.$transaction(async (tx) => {
       // Serialize quota checks for concurrent imports belonging to this tenant.
@@ -93,6 +94,10 @@ export async function updateCustomer(tenantId: string, id: string, input: Partia
   const db = forTenant(prisma, tenantId);
   const existing = await db.customer.findFirst({ where: { id } });
   if (!existing) throw notFound("Customer");
+  const whatsappEnabled=input.whatsappInvoiceEnabled??existing.whatsappInvoiceEnabled;
+  const whatsappPhone=input.whatsappPhone===undefined?existing.whatsappPhone:input.whatsappPhone;
+  const phone=input.phone===undefined?existing.phone:input.phone;
+  if(whatsappEnabled&&!normalizeWhatsappPhone(whatsappPhone||phone))throw badRequest("Set a valid WhatsApp number or customer phone before enabling invoice delivery");
   const portalUser = await prisma.user.findFirst({ where: { tenantId, customerId: id, userType: "CUSTOMER" } });
   if (portalUser && input.email !== undefined && !input.email) throw badRequest("Primary email is required for this customer's portal account");
   validateGst({

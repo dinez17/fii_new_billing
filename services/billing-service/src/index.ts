@@ -2,8 +2,8 @@ import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
 import { authenticate, authorize, requireCustomer } from "@fii/auth";
-import { prisma, numberedDocumentIds, inDocumentOrder } from "@fii/database";
-import { unauthorized, httpMetrics, mountOps } from "@fii/common";
+import { prisma, queueInvoiceWhatsapp, numberedDocumentIds, inDocumentOrder } from "@fii/database";
+import { badRequest, normalizeWhatsappPhone, unauthorized, httpMetrics, mountOps } from "@fii/common";
 import { startOutboxRelay } from "@fii/kafka";
 import { errorHandler, h, log, parse } from "./http.js";
 import * as invoices from "./services/invoice.service.js";
@@ -45,6 +45,18 @@ invoicesRouter.get("/:id/pdf", authorize("invoice:read"), h(async (req, res) => 
 }));
 invoicesRouter.post("/:id/email", authorize("invoice:read"), h(async (req, res) => {
   res.json(await emailInvoice(req.auth!.tenantId, req.params.id));
+}));
+invoicesRouter.post("/:id/whatsapp", authorize("invoice:read"), h(async(req,res)=>{
+  const requestId = req.body?.requestId;
+  if (typeof requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) throw badRequest("A valid request ID is required");
+  const invoice=await prisma.invoice.findFirst({where:{id:req.params.id,tenantId:req.auth!.tenantId},include:{customer:true}});
+  if(!invoice || !invoice.customer.whatsappInvoiceEnabled) throw badRequest("Enable WhatsApp delivery on this customer first");
+  const to=normalizeWhatsappPhone(invoice.customer.whatsappPhone || invoice.customer.phone);
+  if(!to) throw badRequest("Set a valid customer WhatsApp number");
+  const settings=await prisma.setting.findMany({where:{tenantId:req.auth!.tenantId,group:"WHATSAPP"}});
+  if(!settings.some(s=>s.key === "enabled" && s.value === "true") || !settings.some(s=>s.key === "apiKey" && s.isSecret && s.value)) throw badRequest("Configure WhatsApp in tenant Settings first");
+  if(["DRAFT","CANCELLED"].includes(invoice.status)) throw badRequest("Only issued invoices can be sent");
+  res.status(202).json(await queueInvoiceWhatsapp(req.auth!.tenantId,invoice.id,{to:"+"+to,requestId,actorId:req.auth!.sub}));
 }));
 invoicesRouter.post("/", authorize("invoice:create"), h(async (req, res) => {
   res.status(201).json(await invoices.createInvoice(req.auth!.tenantId, req.auth!.sub, parse(invoiceCreateBody, req.body)));

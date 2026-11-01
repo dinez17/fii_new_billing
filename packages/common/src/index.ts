@@ -14,3 +14,7 @@ export { runPgDump, runPgRestore, pgDumpAvailable } from "./backup.js";
 
 export * from "./non-gst-company.js";
 export * from "./billing-cycle.js";
+
+export * from "./whatsapp-phone.js";
+
+export * from "./wapi.js";

@@ -6,8 +6,8 @@
  *   payment.success     → PAYMENT_RECEIVED
  *   payment.failed      → PAYMENT_FAILED
  */
-import { prisma } from "@fii/database";
-import { createLogger, startOpsServer, customerMailRecipients } from "@fii/common";
+import { prisma,queueInvoiceWhatsapp } from "@fii/database";
+import { createLogger, startOpsServer, customerMailRecipients, normalizeWhatsappPhone } from "@fii/common";
 import { TOPICS, runConsumer, type EventEnvelope } from "@fii/kafka";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
 import { dispatch, retryNotifications } from "./send.js";
@@ -67,6 +67,9 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         refId: p.invoiceId,
         attachments,
       });
+      const invoice=await prisma.invoice.findFirst({where:{tenantId,id:p.invoiceId},include:{customer:true}});
+      const phone=normalizeWhatsappPhone(invoice?.customer.whatsappPhone||invoice?.customer.phone);
+      if(invoice && !["DRAFT","CANCELLED"].includes(invoice.status) && invoice.customer.whatsappInvoiceEnabled&&phone){await queueInvoiceWhatsapp(tenantId,p.invoiceId,{to:"+"+phone});}
       break;
     }
     case TOPICS.PAYMENT_SUCCESS: {

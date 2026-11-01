@@ -449,6 +449,8 @@ model Customer {
   name           String
   email          String?
   additionalEmails String[] @default([])
+  whatsappInvoiceEnabled Boolean @default(false)
+  whatsappPhone String?
   stateName String?
   installationCity String?
   installationState String?
@@ -1481,6 +1483,11 @@ model NotificationTemplate {
 }
 
 model NotificationLog {
+  dedupeKey String?
+  providerMessageId String?
+  providerStatus String?
+  providerPolls Int @default(0)
+  requiresReview Boolean @default(false)
   id        String              @id @default(uuid())
   tenantId  String
   channel   NotificationChannel
@@ -1500,6 +1507,7 @@ model NotificationLog {
 
   @@index([tenantId, status, createdAt])
   @@index([status, nextAttemptAt, lockedUntil], map: "NotificationLog_retry_idx")
+  @@unique([tenantId, dedupeKey])
 }
 
 // ─────────────────────────────────────────────── INFRA: OUTBOX / IDEMPOTENCY / REPORT JOBS

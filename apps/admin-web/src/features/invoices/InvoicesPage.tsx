@@ -14,7 +14,7 @@ interface InvoiceRow {
   id: string; invoiceNumber: string; invoiceDate: string; dueDate: string;
   grandTotal: string; amountPaid: string; balance: string; status: string; isInterState: boolean;
   poNumber?: string | null;
-  customer: { id: string; name: string; phone: string };
+  customer: { id: string; name: string; phone: string; whatsappInvoiceEnabled?: boolean };
 }
 interface InvoiceDetail extends InvoiceRow {
   subTotal: string; discountTotal: string; taxableValue: string;
@@ -97,6 +97,13 @@ export function InvoicesPage() {
     }
   }
 
+  const [whatsappSending,setWhatsappSending]=useState<string|null>(null);
+  async function whatsappInvoice(inv:InvoiceRow){
+    if(!confirm(`Send invoice ${inv.invoiceNumber} PDF to this customer's WhatsApp?`))return;
+    setWhatsappSending(inv.id);
+    try{await api.post(`/invoices/${inv.id}/whatsapp`,{requestId:crypto.randomUUID()});alert("WhatsApp invoice queued. Check Notifications → Send log for the result.");}catch(err){alert(errMessage(err));}finally{setWhatsappSending(null);}
+  }
+
   async function cancelInvoice(inv: InvoiceRow) {
     const reason = prompt(`Cancel ${inv.invoiceNumber}? Enter a reason:`);
     if (!reason) return;
@@ -162,6 +169,7 @@ export function InvoicesPage() {
               <td style={{ whiteSpace: "nowrap" }}>
                 <IconButton className="small" onClick={() => setDetailId(inv.id)} icon="view" label="View">View</IconButton>{" "}
                 <IconButton className="small" onClick={() => void downloadPdf(inv)} icon="download" label="PDF">PDF</IconButton>{" "}
+                {inv.customer.whatsappInvoiceEnabled && !["DRAFT","CANCELLED"].includes(inv.status) && <IconButton icon="whatsapp" label="Send invoice on WhatsApp" disabled={whatsappSending===inv.id} onClick={()=>void whatsappInvoice(inv)} />}
                 <IconButton className="small" disabled={mailing === inv.id} onClick={() => void mailInvoice(inv)} icon="mail" label={mailing === inv.id ? "Sending…" : "Mail"}>
                   {mailing === inv.id ? "Sending…" : "Mail"}
                 </IconButton>{" "}

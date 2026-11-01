@@ -11,6 +11,7 @@ import { ActionIcon, IconButton } from "../../components/IconButton";
 import { CustomerAddress } from "../../components/CustomerAddress";
 
 interface CustomerRow {
+  whatsappInvoiceEnabled?: boolean; whatsappPhone?: string | null;
   additionalEmails?: string[]; stateName?: string; installationCity?: string; installationState?: string; installationStateCode?: string; installationPincode?: string;
   id: string; code: string; name: string; phone: string | null; email?: string;
   gstin?: string; gstTreatment: string; city?: string; stateCode?: string;
@@ -22,6 +23,7 @@ interface CustomerRow {
 }
 
 interface FormState {
+  whatsappInvoiceEnabled: boolean; whatsappPhone: string;
   additionalEmails: string; stateName: string; installationCity: string; installationState: string; installationStateCode: string; installationPincode: string;
   id?: string; name: string; phone: string; email: string; gstin: string;
   gstTreatment: string; billingAddress: string; serviceAddress: string; city: string; stateCode: string;
@@ -29,6 +31,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
+  whatsappInvoiceEnabled: false, whatsappPhone: "",
   additionalEmails: "", stateName: "", installationCity: "", installationState: "", installationStateCode: "", installationPincode: "",
   name: "", phone: "", email: "", gstin: "", gstTreatment: "B2C",
   billingAddress: "", serviceAddress: "", city: "", stateCode: "", pincode: "", openingBalance: "0",
@@ -74,6 +77,7 @@ export function CustomersPage() {
   const save = useMutation({
     mutationFn: async (f: FormState) => {
       const body = {
+        whatsappInvoiceEnabled:f.whatsappInvoiceEnabled,whatsappPhone:f.whatsappPhone,
         additionalEmails: f.additionalEmails.split(/[,;\n]/).map((email) => email.trim()).filter(Boolean),
         stateName: f.stateName, installationCity: f.installationCity, installationState: f.installationState,
         installationStateCode: f.installationStateCode, installationPincode: f.installationPincode,
@@ -163,6 +167,7 @@ export function CustomersPage() {
                   <>
                     <IconButton className="small" onClick={() => { setCopyInstallation(false); setForm({
                       additionalEmails: (c.additionalEmails ?? []).join(", "), stateName: c.stateName ?? "", installationCity: c.installationCity ?? "", installationState: c.installationState ?? "", installationStateCode: c.installationStateCode ?? "", installationPincode: c.installationPincode ?? "",
+                      whatsappInvoiceEnabled:c.whatsappInvoiceEnabled??false,whatsappPhone:c.whatsappPhone??"",
                       id: c.id, name: c.name, phone: c.phone ?? "", email: c.email ?? "",
                       gstin: c.gstin ?? "", gstTreatment: c.gstTreatment,
                       billingAddress: c.billingAddress ?? "", serviceAddress: c.serviceAddress ?? "", city: c.city ?? "",
@@ -242,6 +247,8 @@ export function CustomersPage() {
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <label>Phone (if available)</label>
             <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <label><input type="checkbox" checked={form.whatsappInvoiceEnabled} onChange={e=>setForm({...form,whatsappInvoiceEnabled:e.target.checked})}/>Send invoice PDFs on WhatsApp</label>
+            {form.whatsappInvoiceEnabled&&<><label>WhatsApp number (optional if the customer phone uses WhatsApp)</label><input placeholder="+91 9876543210" value={form.whatsappPhone} onChange={e=>setForm({...form,whatsappPhone:e.target.value})}/><small>Delivery uses this customer's selected WhatsApp setup. Configure the tenant's WhatsApp service before automatic sending.</small></>}
             <label>Primary Email (needed for portal access)</label>
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <label>Additional emails for invoices and receipts (comma separated)</label>
