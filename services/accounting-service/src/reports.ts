@@ -3,7 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { notFound } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { manualJournalAdjustments, Prisma, prisma, computeTallyPnl, computeBalanceSheet } from "@fii/database";
+import { numberedDocumentIds, inDocumentOrder, manualJournalAdjustments, Prisma, prisma, computeTallyPnl, computeBalanceSheet } from "@fii/database";
 import { h, parse, n, dayStart, dayEnd, dateRange } from "./util.js";
 
 export const reportsRouter = Router();
@@ -18,9 +18,10 @@ reportsRouter.get("/sales", authorize("report:read"), h(async (req, res) => {
   const where: Prisma.InvoiceWhereInput = {
     tenantId, status: { not: "CANCELLED" }, invoiceDate: rangeWhere(q.from, q.to),
   };
+  const ids=await numberedDocumentIds("INVOICE",{tenantId,from:dayStart(q.from),to:dayEnd(q.to),limit:2000,excludeStatuses:["CANCELLED"]});
   const [rows, agg, tds] = await Promise.all([
     prisma.invoice.findMany({
-      where, orderBy: { invoiceDate: "asc" }, take: 2000,
+      where:{AND:[where,{id:{in:ids}}]},
       select: {
         id: true, invoiceNumber: true, invoiceDate: true, gstTreatment: true,
         taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, amountPaid: true, status: true,
@@ -38,7 +39,7 @@ reportsRouter.get("/sales", authorize("report:read"), h(async (req, res) => {
       igst: n(agg._sum.igst), grandTotal: n(agg._sum.grandTotal), collected: n(agg._sum.amountPaid) - n(tds._sum.tdsAmount), tdsDeducted: n(tds._sum.tdsAmount),
       outstanding: Math.round((n(agg._sum.grandTotal) - n(agg._sum.amountPaid)) * 100) / 100,
     },
-    rows,
+    rows:inDocumentOrder(rows,ids),
   });
 }));
 
@@ -47,9 +48,10 @@ reportsRouter.get("/purchases", authorize("report:read"), h(async (req, res) => 
   const q = parse(dateRange, req.query);
   const tenantId = req.auth!.tenantId;
   const where: Prisma.PurchaseInvoiceWhereInput = { tenantId, invoiceDate: rangeWhere(q.from, q.to) };
+  const ids=await numberedDocumentIds("PURCHASE",{tenantId,from:dayStart(q.from),to:dayEnd(q.to),limit:2000});
   const [rows, agg] = await Promise.all([
     prisma.purchaseInvoice.findMany({
-      where, orderBy: { invoiceDate: "asc" }, take: 2000,
+      where:{AND:[where,{id:{in:ids}}]},
       select: {
         id: true, ourNumber: true, billNumber: true, invoiceDate: true,
         taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, amountPaid: true, status: true,
@@ -66,7 +68,7 @@ reportsRouter.get("/purchases", authorize("report:read"), h(async (req, res) => 
       inputIgst: n(agg._sum.igst), grandTotal: n(agg._sum.grandTotal), paid: n(agg._sum.amountPaid),
       payable: Math.round((n(agg._sum.grandTotal) - n(agg._sum.amountPaid)) * 100) / 100,
     },
-    rows,
+    rows:inDocumentOrder(rows,ids),
   });
 }));
 

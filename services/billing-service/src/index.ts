@@ -2,7 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
 import { authenticate, authorize, requireCustomer } from "@fii/auth";
-import { prisma } from "@fii/database";
+import { prisma, numberedDocumentIds, inDocumentOrder } from "@fii/database";
 import { unauthorized, httpMetrics, mountOps } from "@fii/common";
 import { startOutboxRelay } from "@fii/kafka";
 import { errorHandler, h, log, parse } from "./http.js";
@@ -87,16 +87,15 @@ const portalInvoicesRouter = Router();
 portalInvoicesRouter.use(authenticate, requireCustomer);
 
 portalInvoicesRouter.get("/", h(async (req, res) => {
+  const ids=await numberedDocumentIds("INVOICE",{tenantId:req.auth!.tenantId,customerId:req.auth!.customerId!,excludeStatuses:["DRAFT"],limit:100});
   const items = await prisma.invoice.findMany({
-    where: { tenantId: req.auth!.tenantId, customerId: req.auth!.customerId!, status: { not: "DRAFT" } },
-    orderBy: { invoiceDate: "desc" },
-    take: 100,
+    where: { tenantId: req.auth!.tenantId, customerId: req.auth!.customerId!, id:{in:ids}, status: { not: "DRAFT" } },
     select: {
       id: true, invoiceNumber: true, invoiceDate: true, dueDate: true,
       grandTotal: true, amountPaid: true, status: true,
     },
   });
-  res.json({ items });
+  res.json({ items:inDocumentOrder(items,ids) });
 }));
 
 portalInvoicesRouter.get("/:id/pdf", h(async (req, res) => {

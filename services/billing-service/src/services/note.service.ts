@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, applyStock, prisma } from "@fii/database";
+import { numberedDocumentIds, inDocumentOrder, Prisma, allocateNumber, applyStock, prisma } from "@fii/database";
 import { badRequest, computeGst, notFound } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import type { z } from "zod";
@@ -135,17 +135,15 @@ export async function listNotes(tenantId: string, kind: NoteKind, q: ListQuery) 
     ...(q.search ? { noteNumber: { contains: q.search, mode: "insensitive" as const } } : {}),
   };
   const delegate = kind === "credit" ? prisma.creditNote : prisma.debitNote;
+  const ids=await numberedDocumentIds(kind==="credit"?"CREDIT_NOTE":"DEBIT_NOTE",{...q,tenantId,statuses:q.status?[q.status]:undefined});
   const [items, total] = await Promise.all([
     (delegate as typeof prisma.creditNote).findMany({
-      where,
-      skip: (q.page - 1) * q.limit,
-      take: q.limit,
-      orderBy: { noteDate: "desc" },
+      where:{AND:[where,{id:{in:ids}}]},
       include: { invoice: { select: { invoiceNumber: true, customer: { select: { name: true } } } } },
     }),
     (delegate as typeof prisma.creditNote).count({ where }),
   ]);
-  return { items, total, page: q.page, limit: q.limit };
+  return { items:inDocumentOrder(items,ids), total, page: q.page, limit: q.limit };
 }
 
 export async function cancelNote(tenantId: string, kind: NoteKind, id: string, actorId?: string) {

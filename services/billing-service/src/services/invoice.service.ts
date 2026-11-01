@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, applyStock, prisma, termsFor } from "@fii/database";
+import { Prisma, numberedDocumentIds, inDocumentOrder, allocateNumber, applyStock, prisma, termsFor } from "@fii/database";
 import { badRequest, computeGst, notFound } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import type { z } from "zod";
@@ -175,13 +175,10 @@ export async function listInvoices(tenantId: string, q: ListQuery) {
         }
       : {}),
   };
+  const ids=await numberedDocumentIds("INVOICE",{...q,tenantId,statuses:q.status?(q.status==="OUTSTANDING"?["UNPAID","PARTIAL"]:[q.status]):undefined,chargeGst:q.taxMode?q.taxMode==="GST":undefined});
   const [items, total, sums] = await Promise.all([
     prisma.invoice.findMany({
-      where,
-      skip: (q.page - 1) * q.limit,
-      take: q.limit,
-      // invoice numbers are zero-padded within a series, so string desc = newest first
-      orderBy: { invoiceNumber: "desc" },
+      where:{AND:[where,{id:{in:ids}}]},
       include: { customer: { select: { id: true, name: true, phone: true } } },
     }),
     prisma.invoice.count({ where }),
@@ -191,7 +188,7 @@ export async function listInvoices(tenantId: string, q: ListQuery) {
     }),
   ]);
   return {
-    items: items.map((invoice) => ({ ...invoice, balance: invoice.status === "CANCELLED" ? "0.00" : Prisma.Decimal.max(new Prisma.Decimal(invoice.grandTotal).sub(invoice.amountPaid).sub(invoice.creditedAmount), 0).toFixed(2) })), total, page: q.page, limit: q.limit,
+    items: inDocumentOrder(items,ids).map((invoice) => ({ ...invoice, balance: invoice.status === "CANCELLED" ? "0.00" : Prisma.Decimal.max(new Prisma.Decimal(invoice.grandTotal).sub(invoice.amountPaid).sub(invoice.creditedAmount), 0).toFixed(2) })), total, page: q.page, limit: q.limit,
     totals: {
       billed: sums._sum.grandTotal ?? 0,
       collected: sums._sum.amountPaid ?? 0,

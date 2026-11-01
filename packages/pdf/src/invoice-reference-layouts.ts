@@ -81,6 +81,9 @@ export function renderReferenceInvoice(doc: PDFKit.PDFDocument, invoice: Invoice
     const buyerH = Math.max(78, height(bill, rightW - 10, 8.5) + 18);
     box(split, top + 31, rightW, buyerH); text("Buyer (Bill to)", split + 5, top + 35, rightW - 10, 8); text(bill, split + 5, top + 47, rightW - 10, 8.5);
     const h = Math.max(end - top + 8, buyerH + 31); box(L, top, W, h); vertical(split, top, top + h); y += h;
+    const poLine = `PO number: ${invoice.poNumber || "-"}`;
+    const poHeight = height(poLine, W - 10, 8.5) + 10;
+    box(L, y, W, poHeight); text(poLine, L + 5, y + 4, W - 10, 8.5); y += poHeight;
     // Keep the installation address in a compact row rather than changing the reference header.
     const installLine = `Installation: ${installation.replace(/\n/g, ", ")}`;
     const ih = height(installLine, W - 10, 8) + 9; box(L, y, W, ih); text(installLine, L + 5, y + 4, W - 10, 8); y += ih;

@@ -20,3 +20,5 @@ export * from "./automatic-journals.js";
 export * from "./subscriber-schedules.js";
 
 export * from "./manual-journal-adjustments.js";
+
+export * from "./document-order.js";

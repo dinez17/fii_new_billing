@@ -35,6 +35,17 @@ suite("invoice status, FY, inclusive date range and balances", () => {
     expect(String(result.totals.billed)).toBe("200");
     expect(String(result.totals.collected)).toBe("40");
   });
+  it("uses numeric invoice ordering before pagination and keeps All statuses deterministic",async()=>{
+    const base={tenantId,customerId,fyCode:"2026-27",invoiceDate:new Date("2026-11-01"),dueDate:new Date("2026-11-10"),placeOfSupply:"33",subTotal:100,taxableValue:100,grandTotal:100};
+    const data=[{...base,invoiceNumber:"FII/26-27/9",status:"PAID" as const},{...base,invoiceNumber:"FII/26-27/89",status:"UNPAID" as const},{...base,invoiceNumber:"FII/26-27/98",status:"PARTIAL" as const},{...base,invoiceNumber:"FII/26-27/00099",status:"CANCELLED" as const},{...base,invoiceNumber:"FII/26-27/100",status:"UNPAID" as const},{...base,invoiceNumber:"FII/26-27/101",invoiceDate:new Date("2026-10-31"),status:"UNPAID" as const}];
+    await prisma.invoice.createMany({data});
+    try{
+      const q=invoiceListQuery.parse({fyCode:"2026-27",from:"2026-10-31",to:"2026-11-01",limit:2});
+      const first=await listInvoices(tenantId,q),second=await listInvoices(tenantId,{...q,page:2}),third=await listInvoices(tenantId,{...q,page:3});
+      expect([...first.items,...second.items,...third.items].map(r=>r.invoiceNumber)).toEqual(["FII/26-27/100","FII/26-27/00099","FII/26-27/98","FII/26-27/89","FII/26-27/9","FII/26-27/101"]);
+      expect((await listInvoices(tenantId,{...q,status:"OUTSTANDING",limit:10})).items.map(r=>r.invoiceNumber)).toEqual(["FII/26-27/100","FII/26-27/98","FII/26-27/89","FII/26-27/101"]);
+    }finally{await prisma.invoice.deleteMany({where:{tenantId,invoiceNumber:{in:data.map(r=>r.invoiceNumber)}}});}
+  });
   it("allows paid and cancelled filters without mixing their totals with other statuses", async () => {
     const paid = await listInvoices(tenantId, invoiceListQuery.parse({ ...query, status: "PAID" }));
     expect(paid.total).toBe(1);

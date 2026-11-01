@@ -1,4 +1,4 @@
-import { Prisma, allocateNumber, prisma, termsFor } from "@fii/database";
+import { numberedDocumentIds, inDocumentOrder, Prisma, allocateNumber, prisma, termsFor } from "@fii/database";
 import { badRequest, computeGst, notFound } from "@fii/common";
 import { z } from "zod";
 import { lineItem } from "../validators.js";
@@ -59,8 +59,9 @@ export async function listSalesDocuments(tenantId: string, q: z.infer<typeof doc
     documentDate: { gte: q.from, lte: q.to },
     ...(q.search ? { OR: [{ documentNumber: { contains: q.search, mode: "insensitive" } }, { subject: { contains: q.search, mode: "insensitive" } }, { customer: { name: { contains: q.search, mode: "insensitive" } } }] } : {}),
   };
-  const [items, total] = await Promise.all([prisma.salesDocument.findMany({ where, orderBy: [{ documentDate: "desc" }, { createdAt: "desc" }], skip: (q.page - 1) * q.limit, take: q.limit, include: { customer: { select: { id: true, name: true, phone: true } }, invoice: { select: { invoiceNumber: true, status: true } } } }), prisma.salesDocument.count({ where })]);
-  return { items, total, page: q.page, limit: q.limit };
+  const ids=await numberedDocumentIds("QUOTATION",{...q,tenantId,documentKind:q.kind,statuses:q.status?[q.status]:undefined});
+  const [items, total] = await Promise.all([prisma.salesDocument.findMany({ where:{AND:[where,{id:{in:ids}}]}, include: { customer: { select: { id: true, name: true, phone: true } }, invoice: { select: { invoiceNumber: true, status: true } } } }), prisma.salesDocument.count({ where })]);
+  return { items:inDocumentOrder(items,ids), total, page: q.page, limit: q.limit };
 }
 export async function getSalesDocument(tenantId: string, id: string) {
   const document = await prisma.salesDocument.findFirst({ where: { tenantId, id }, include: { customer: true, invoice: { select: { invoiceNumber: true, status: true } } } });

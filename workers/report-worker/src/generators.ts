@@ -1,4 +1,4 @@
-import { manualJournalAdjustments, prisma, computeTallyPnl, computeBalanceSheet, type TallySide } from "@fii/database";
+import { numberedDocumentIds, inDocumentOrder, manualJournalAdjustments, prisma, computeTallyPnl, computeBalanceSheet, type TallySide } from "@fii/database";
 
 export interface TableData {
   title: string;
@@ -17,15 +17,15 @@ const end = (x: Date) => new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), 
 const range = (f: Filters) => ({ gte: start(d(f.from)), lte: end(d(f.to)) });
 
 async function sales(tenantId: string, f: Filters): Promise<TableData> {
+  const ids=await numberedDocumentIds("INVOICE",{tenantId,from:start(d(f.from)),to:end(d(f.to)),limit:5000,excludeStatuses:["CANCELLED"]});
   const rows = await prisma.invoice.findMany({
-    where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range(f) },
-    orderBy: { invoiceDate: "asc" }, take: 5000,
-    select: { invoiceNumber: true, invoiceDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, amountPaid: true, customer: { select: { name: true } } },
+    where: { tenantId, id:{in:ids} },
+    select: { id:true, invoiceNumber: true, invoiceDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, amountPaid: true, customer: { select: { name: true } } },
   });
   return {
     title: `Sales register ${day(d(f.from))} to ${day(d(f.to))}`,
     columns: ["Invoice", "Date", "Customer", "Taxable", "CGST", "SGST", "IGST", "Total", "Paid"],
-    rows: rows.map((r) => [r.invoiceNumber, day(r.invoiceDate), r.customer.name, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal), num(r.amountPaid)]),
+    rows: inDocumentOrder(rows,ids).map((r) => [r.invoiceNumber, day(r.invoiceDate), r.customer.name, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal), num(r.amountPaid)]),
     summary: [
       ["Invoices", rows.length],
       ["Taxable", round(rows.reduce((s, r) => s + num(r.taxableValue), 0))],
@@ -35,15 +35,15 @@ async function sales(tenantId: string, f: Filters): Promise<TableData> {
 }
 
 async function purchases(tenantId: string, f: Filters): Promise<TableData> {
+  const ids=await numberedDocumentIds("PURCHASE",{tenantId,from:start(d(f.from)),to:end(d(f.to)),limit:5000});
   const rows = await prisma.purchaseInvoice.findMany({
-    where: { tenantId, invoiceDate: range(f) },
-    orderBy: { invoiceDate: "asc" }, take: 5000,
-    select: { ourNumber: true, billNumber: true, invoiceDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, supplier: { select: { name: true } } },
+    where: { tenantId, id:{in:ids} },
+    select: { id:true, ourNumber: true, billNumber: true, invoiceDate: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, supplier: { select: { name: true } } },
   });
   return {
     title: `Purchase register ${day(d(f.from))} to ${day(d(f.to))}`,
     columns: ["Our No", "Bill No", "Date", "Supplier", "Taxable", "CGST", "SGST", "IGST", "Total"],
-    rows: rows.map((r) => [r.ourNumber, r.billNumber, day(r.invoiceDate), r.supplier.name, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal)]),
+    rows: inDocumentOrder(rows,ids).map((r) => [r.ourNumber, r.billNumber, day(r.invoiceDate), r.supplier.name, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal)]),
     summary: [["Bills", rows.length], ["Taxable", round(rows.reduce((s, r) => s + num(r.taxableValue), 0))], ["Grand total", round(rows.reduce((s, r) => s + num(r.grandTotal), 0))]],
   };
 }
@@ -250,15 +250,15 @@ async function statement(tenantId: string, partyType: "CUSTOMER" | "SUPPLIER", f
 }
 
 async function gstr1(tenantId: string, f: Filters): Promise<TableData> {
+  const ids=await numberedDocumentIds("INVOICE",{tenantId,from:start(d(f.from)),to:end(d(f.to)),chargeGst:true,excludeStatuses:["CANCELLED"],limit:5000});
   const inv = await prisma.invoice.findMany({
-    where: { tenantId, chargeGst: true, status: { not: "CANCELLED" }, invoiceDate: range(f) },
-    select: { invoiceNumber: true, invoiceDate: true, placeOfSupply: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, customer: { select: { name: true, gstin: true } } },
-    orderBy: { invoiceDate: "asc" }, take: 5000,
+    where: { tenantId, id:{in:ids} },
+    select: { id:true, invoiceNumber: true, invoiceDate: true, placeOfSupply: true, taxableValue: true, cgst: true, sgst: true, igst: true, grandTotal: true, customer: { select: { name: true, gstin: true } } },
   });
   return {
     title: `GSTR-1 outward supplies ${day(d(f.from))} to ${day(d(f.to))}`,
     columns: ["Invoice", "Date", "GSTIN", "Customer", "POS", "Taxable", "CGST", "SGST", "IGST", "Total"],
-    rows: inv.map((r) => [r.invoiceNumber, day(r.invoiceDate), r.customer.gstin ?? "URP", r.customer.name, r.placeOfSupply, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal)]),
+    rows: inDocumentOrder(inv,ids).map((r) => [r.invoiceNumber, day(r.invoiceDate), r.customer.gstin ?? "URP", r.customer.name, r.placeOfSupply, num(r.taxableValue), num(r.cgst), num(r.sgst), num(r.igst), num(r.grandTotal)]),
     summary: [["Invoices", inv.length], ["Taxable", round(inv.reduce((s, r) => s + num(r.taxableValue), 0))], ["Tax", round(inv.reduce((s, r) => s + num(r.cgst) + num(r.sgst) + num(r.igst), 0))]],
   };
 }

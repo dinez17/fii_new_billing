@@ -1,4 +1,4 @@
-import { Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
+import { numberedDocumentIds, inDocumentOrder, Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
 import { badRequest, computeGst, isValidGstin, notFound, partyListFilters, transactionPeriodFilters } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import { z } from "zod";
@@ -266,14 +266,15 @@ export async function listPurchaseInvoices(tenantId: string, q: z.infer<typeof p
       ? { OR: [{ ourNumber: { contains: q.search, mode: "insensitive" } }, { billNumber: { contains: q.search, mode: "insensitive" } }, { supplier: { name: { contains: q.search, mode: "insensitive" } } }] }
       : {}),
   };
+  const ids=await numberedDocumentIds("PURCHASE",{...q,tenantId,statuses:q.status?(q.status=="OUTSTANDING"?["UNPAID","PARTIAL"]:[q.status]):undefined});
   const [items, total] = await Promise.all([
     prisma.purchaseInvoice.findMany({
-      where, skip: (q.page - 1) * q.limit, take: q.limit, orderBy: { invoiceDate: "desc" },
+      where:{AND:[where,{id:{in:ids}}]},
       include: { supplier: { select: { id: true, name: true } } },
     }),
     prisma.purchaseInvoice.count({ where }),
   ]);
-  return { items, total, page: q.page, limit: q.limit };
+  return { items:inDocumentOrder(items,ids), total, page: q.page, limit: q.limit };
 }
 
 export async function getPurchaseInvoice(tenantId: string, id: string) {
