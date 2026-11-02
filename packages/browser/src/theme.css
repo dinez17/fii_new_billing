@@ -166,7 +166,7 @@ td code { background: var(--accent-soft); color: var(--accent-600); }
 .sidebar .brand { gap: 10px; }
 .sidebar-logo { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; background: white; padding: 4px; border-radius: 10px; border: 1px solid #dfe6ed; }
 .sidebar-brand-name { min-width: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
-.login-logo { display: block; width: 180px; max-width: 100%; height: 172px; object-fit: contain; margin: 0 auto 14px; background: white; border-radius: 10px; }
+.login-logo { display: block; width: 240px; max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; margin: 0 auto 16px; background: white; border-radius: 10px; }
 .brand-tagline { display: block; font-size: 12px; line-height: 1.5; margin-bottom: 10px; color: var(--muted); }
 .login-card h1 { text-align: center; }
 .appearance-picker { position: relative; font-size: 12px; }
