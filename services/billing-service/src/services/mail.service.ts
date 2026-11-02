@@ -10,14 +10,14 @@ function render(template: string, vars: Record<string, string>): string {
 
 const transports = new Map<string, Transporter>();
 
-async function smtpFor(tenantId: string): Promise<{ t: Transporter; from: string }> {
+export async function smtpFor(tenantId: string): Promise<{ t: Transporter; from: string }> {
   const rows = await prisma.setting.findMany({ where: { tenantId, group: "SMTP" } });
   const cfg: Record<string, string> = {};
   for (const r of rows) cfg[r.key] = r.isSecret ? decryptSecret(r.value) : r.value;
   if (cfg.enabled !== "true" || !cfg.host) {
     throw badRequest("SMTP is not configured — set it up in Settings → Email (SMTP)");
   }
-  const key = `${tenantId}:${cfg.host}:${cfg.user}`;
+  const key = JSON.stringify([tenantId, cfg.host, cfg.port, cfg.user, cfg.password]);
   let t = transports.get(key);
   if (!t) {
     t = nodemailer.createTransport({
@@ -26,6 +26,7 @@ async function smtpFor(tenantId: string): Promise<{ t: Transporter; from: string
       secure: Number(cfg.port) === 465,
       auth: cfg.user ? { user: cfg.user, pass: cfg.password } : undefined,
     });
+    for (const old of transports.keys()) if (JSON.parse(old)[0] === tenantId) { transports.get(old)?.close(); transports.delete(old); }
     transports.set(key, t);
   }
   const from = cfg.fromName ? `"${cfg.fromName}" <${cfg.fromEmail ?? cfg.user}>` : (cfg.fromEmail ?? cfg.user);
