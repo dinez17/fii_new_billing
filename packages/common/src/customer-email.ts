@@ -1,8 +1,11 @@
 import { z } from "zod";
 
 /** Additional billing recipients never change the customer's portal identity. */
-export function customerMailRecipients(customer: { email?: string | null; additionalEmails?: string[] }): string {
-  return [...new Set([customer.email, ...(customer.additionalEmails ?? [])].filter((value): value is string => !!value).map((value) => value.trim().toLowerCase()))].join(", ");
+export function customerMailRecipients(customer: { email?: string | null; additionalEmails?: string[] }, companyEmail?: string | null): string {
+  const valid=(value:string)=>z.string().email().safeParse(value).success;
+  const recipients=[...new Set([customer.email, ...(customer.additionalEmails ?? [])].filter((value): value is string => !!value).map((value) => value.trim().toLowerCase()).filter(valid))];
+  const fallback=companyEmail?.trim().toLowerCase();
+  return recipients.length ? recipients.join(", ") : fallback && valid(fallback) ? fallback : "";
 }
 
 /** Copy the tenant company once; customer recipients remain in To. */

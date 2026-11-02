@@ -153,6 +153,16 @@ suite("quotation and proforma sales workflow", () => {
     const invoice=await prisma.invoice.findUniqueOrThrow({where:{id:result.id},include:{items:true}});
     expect(invoice.items).toHaveLength(1);expect(invoice.items[0].description).toBe("100 Mbps");expect(Number(invoice.grandTotal)).toBe(1062);
   });
+  it("sends invoices and customer quotations to their own tenant company when customer emails are absent",async()=>{
+    const saved=await prisma.customer.findUniqueOrThrow({where:{id:customerId}});
+    try{
+      await prisma.customer.update({where:{id:customerId},data:{email:null,additionalEmails:[]}});
+      const invoice=await prisma.invoice.findFirstOrThrow({where:{tenantId,customerId,status:{notIn:["CANCELLED","DRAFT"]}}});
+      const result=await emailInvoice(tenantId,invoice.id);expect(result.to).toBe("company@example.test");expect(result.cc).toBeUndefined();
+      const quote=await createSalesDocument(tenantId,actorId,input());expect((await emailSalesDocument(tenantId,quote.id)).to).toBe("company@example.test");
+      expect(await prisma.notificationLog.count({where:{tenantId,refId:invoice.id,to:"company@example.test",status:"SENT"}})).toBeGreaterThan(0);
+    }finally{await prisma.customer.update({where:{id:customerId},data:{email:saved.email,additionalEmails:saved.additionalEmails}});}
+  });
   it("records SMTP failure without changing the open document or creating an invoice", async () => {
     await new Promise<void>(resolve => mailServer.close(() => resolve()));
     const quote = await createSalesDocument(tenantId, actorId, input());

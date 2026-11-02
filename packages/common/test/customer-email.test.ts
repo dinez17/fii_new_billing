@@ -13,3 +13,13 @@ it("copies the company without duplicating customer addresses or accepting inval
  expect(companyMailCc("invalid","customer@example.test")).toBeUndefined();
  expect(companyMailCc("company@example.test\r\nBcc: other@example.test","customer@example.test")).toBeUndefined();
 });
+
+it("uses only the supplied tenant company address when customer recipients are missing or invalid",()=>{
+ expect(customerMailRecipients({email:null},"first@example.test")).toBe("first@example.test");
+ expect(customerMailRecipients({email:"invalid",additionalEmails:["-",""]},"sky@example.test")).toBe("sky@example.test");
+ expect(customerMailRecipients({email:"customer@example.test"},"sky@example.test")).toBe("customer@example.test");
+ expect(customerMailRecipients({email:null,additionalEmails:["accounts@example.test"]},"sky@example.test")).toBe("accounts@example.test");
+ expect(customerMailRecipients({},"invalid")).toBe("");
+ expect(customerMailRecipients({email:"a@example.test\r\nBcc: attacker@example.test"},"sky@example.test")).toBe("sky@example.test");
+ expect(companyMailCc("sky@example.test",customerMailRecipients({},"sky@example.test"))).toBeUndefined();
+});

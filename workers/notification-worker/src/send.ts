@@ -125,7 +125,8 @@ export async function deliverNotification(id: string, suppliedAttachments?: Send
     }
     if(BUSINESS_DOCUMENT_KINDS.includes(row.refType as BusinessDocumentKind)&&row.refId){
       const pdf=await buildBusinessDocumentPdfBuffer(row.tenantId,row.refType as BusinessDocumentKind,row.refId);
-      if(businessDocumentRecipient(pdf.document,"EMAIL")!==row.to)throw new Error("Document contact changed; queue a new message for the current recipient");
+      const company=await prisma.tenant.findUniqueOrThrow({where:{id:row.tenantId},select:{email:true}});
+      if(businessDocumentRecipient(pdf.document,"EMAIL",company.email)!==row.to)throw new Error("Document contact changed; queue a new message for the current recipient");
       attachments=[{filename:pdf.document.number.replace(/[\\/]/g,"-")+".pdf",content:pdf.buffer}];
     }
     const smtp = sender ? { from: "test@example.test", t: { sendMail: sender } } : await getTransport(row.tenantId);

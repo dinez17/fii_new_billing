@@ -4,9 +4,9 @@ import {badRequest,customerMailRecipients,normalizeWhatsappPhone} from "@fii/com
 import {buildSalesDocumentPdfBuffer} from "./sales-document.js";
 import {buildNotePdfBuffer} from "./note.js";
 import {loadInvoiceCompany} from "./invoice-company.js";
-export function businessDocumentRecipient(document:Awaited<ReturnType<typeof loadBusinessDocument>>,channel:"EMAIL"|"WHATSAPP"){
+export function businessDocumentRecipient(document:Awaited<ReturnType<typeof loadBusinessDocument>>,channel:"EMAIL"|"WHATSAPP",companyEmail?:string|null){
  if(channel==="EMAIL"){
-  const to=customerMailRecipients(document.party);if(!to)throw badRequest(`Add the ${document.partyType==="SUPPLIER"?"supplier":"customer"} email address first`);return to;
+  const to=customerMailRecipients(document.party,document.partyType==="CUSTOMER"?companyEmail:undefined);if(!to)throw badRequest(`Add the ${document.partyType==="SUPPLIER"?"supplier":"customer"} email address first`);return to;
  }
  if(document.partyType==="CUSTOMER"&&'whatsappInvoiceEnabled' in document.party&&!document.party.whatsappInvoiceEnabled)throw badRequest("Enable WhatsApp delivery on this customer first");
  const phone=normalizeWhatsappPhone(('whatsappPhone' in document.party?document.party.whatsappPhone:null)||document.party.phone);
@@ -14,7 +14,9 @@ export function businessDocumentRecipient(document:Awaited<ReturnType<typeof loa
 }
 export async function queueBusinessDocument(tenantId:string,actorId:string,kind:BusinessDocumentKind,id:string,channel:"EMAIL"|"WHATSAPP",requestId:string){
  try{return await prisma.$transaction(async tx=>{
-  const document=await loadBusinessDocument(tenantId,kind,id,tx),to=businessDocumentRecipient(document,channel);
+  const document=await loadBusinessDocument(tenantId,kind,id,tx);
+  const company=channel==="EMAIL"&&document.partyType==="CUSTOMER"?await tx.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}}):null;
+  const to=businessDocumentRecipient(document,channel,company?.email);
   const group=channel==="EMAIL"?"SMTP":"WHATSAPP",settings=await tx.setting.findMany({where:{tenantId,group}});
   if(!settings.some(s=>s.key==="enabled"&&s.value==="true")||!settings.some(s=>s.key===(channel==="EMAIL"?"host":"apiKey")&&s.value&&(channel==="EMAIL"||s.isSecret)))throw badRequest(`Configure ${group} in Settings first`);
   const dedupeKey=`${channel}:${kind}:${id}:${requestId}`;

@@ -37,12 +37,12 @@ export async function smtpFor(tenantId: string): Promise<{ t: Transporter; from:
 export async function emailSalesDocument(tenantId: string, id: string): Promise<{ to: string; cc?: string }> {
   const { buffer, document } = await buildSalesDocumentPdfBuffer(tenantId, id);
   if (document.status === "CANCELLED") throw badRequest("Cancelled documents cannot be emailed");
-  const to = customerMailRecipients(document.customer ?? document.prospect as {email:string});
-  if (!to) throw badRequest("Add the customer's email address before sending this document");
+  const company=await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}});
+  const to = customerMailRecipients(document.customer ?? document.prospect as {email:string},company.email);
+  if (!to) throw badRequest("Set the customer email or tenant company email before sending");
   const title = document.kind === "QUOTATION" ? "Quotation" : "Proforma invoice";
   const subject = `${title} ${document.documentNumber}`;
   const body = `Dear ${document.customer?.name ?? (document.prospect as {name:string}).name},\n\nPlease find attached ${title.toLowerCase()} ${document.documentNumber} ${document.alternativePlans ? "with alternative plan prices (no combined total)" : `for INR ${Number(document.grandTotal).toFixed(2)}`}. This is not a tax invoice.\n\nThank you.`;
-  const company=await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}});
   const cc=companyMailCc(company.email,to);
   const smtp = await smtpFor(tenantId);
   const row = await prisma.notificationLog.create({ data: { tenantId, channel: "EMAIL", to, subject, body, templateCode: "SALES_DOCUMENT_EMAIL", status: "QUEUED", refType: document.kind, refId: id } });
@@ -59,8 +59,9 @@ export async function emailSalesDocument(tenantId: string, id: string): Promise<
 /** Emails the invoice PDF to the customer; logs to NotificationLog. */
 export async function emailInvoice(tenantId: string, invoiceId: string): Promise<{ to: string; cc?: string }> {
   const { buffer, invoice } = await buildInvoicePdfBuffer(tenantId, invoiceId);
-  const to = customerMailRecipients(invoice.customer);
-  if (!to) throw badRequest("Customer has no email address — add one on the customer profile");
+  const company=await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}});
+  const to = customerMailRecipients(invoice.customer,company.email);
+  if (!to) throw badRequest("Set the customer email or tenant company email before sending");
 
   const tpl = await prisma.notificationTemplate.findFirst({
     where: { tenantId, code: "INVOICE_GENERATED", channel: "EMAIL", isActive: true },
@@ -74,7 +75,6 @@ export async function emailInvoice(tenantId: string, invoiceId: string): Promise
   const subject = tpl?.subject ? render(tpl.subject, vars) : `Invoice ${invoice.invoiceNumber}`;
   const body = tpl ? render(tpl.body, vars) : `Dear ${vars.customerName},\n\nPlease find attached invoice ${vars.invoiceNumber} for Rs. ${vars.amount}, due on ${vars.dueDate}.\n\nThank you.`;
 
-  const company=await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}});
   const cc=companyMailCc(company.email,to);
   const logRow = await prisma.notificationLog.create({
     data: {

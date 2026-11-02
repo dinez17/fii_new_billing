@@ -19,7 +19,8 @@ async function customerContact(tenantId: string, customerId: string) {
     where: { id: customerId, tenantId },
     select: { name: true, email: true, additionalEmails: true, phone: true },
   });
-  return c ? { ...c, billingEmail: customerMailRecipients(c) } : { name: "Customer", email: null, billingEmail: null, phone: null };
+  const company = c ? await prisma.tenant.findUniqueOrThrow({where:{id:tenantId},select:{email:true}}) : null;
+  return c ? { ...c, billingEmail: customerMailRecipients(c,company?.email) } : { name: "Customer", email: null, billingEmail: null, phone: null };
 }
 
 async function handle(topic: string, event: EventEnvelope): Promise<void> {
@@ -37,7 +38,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       let vars = p.vars ?? {};
       if (p.customerId && !to) {
         const c = await customerContact(tenantId, p.customerId);
-        to = { email: c.email, phone: c.phone };
+        to = { email: c.billingEmail, phone: c.phone };
         vars = { customerName: c.name, ...vars };
       }
       await dispatch({ tenantId, templateCode: p.template, to: to ?? {}, vars, refType: "CUSTOM", refId: p.customerId });
@@ -107,7 +108,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "PAYMENT_FAILED",
-        to: { email: c.email, phone: c.phone },
+        to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, reason: p.reason },
         refType: "PAYMENT",
         refId: p.paymentId,
@@ -120,7 +121,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "COMPLAINT_CREATED",
-        to: { email: c.email, phone: c.phone },
+        to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, complaintNumber: p.complaintNumber, subject: p.subject },
         refType: "COMPLAINT",
         refId: p.complaintId,
@@ -151,7 +152,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "COMPLAINT_RESOLVED",
-        to: { email: c.email, phone: c.phone },
+        to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, complaintNumber: p.complaintNumber, subject: p.subject, resolutionNotes: p.resolutionNotes },
         refType: "COMPLAINT",
         refId: p.complaintId,
