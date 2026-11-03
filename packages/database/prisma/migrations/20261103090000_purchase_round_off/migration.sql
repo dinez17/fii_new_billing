@@ -1,0 +1,1 @@
+ALTER TABLE "PurchaseInvoice" ADD COLUMN "roundOff" DECIMAL(14,2) NOT NULL DEFAULT 0;

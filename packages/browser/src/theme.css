@@ -281,3 +281,8 @@ td code { background: var(--accent-soft); color: var(--accent-600); }
   [data-theme="studio"] .sidebar a,
   [data-theme="studio"] .sidebar .nav-group-header { transition: none; }
 }
+
+.payment-entry-page input[type="checkbox"] { width: auto; min-width: 18px; min-height: 18px; vertical-align: middle; }
+.payment-entry-page table { width: 100%; }
+.payment-entry-page .card { overflow-x: auto; }
+@media (max-width: 700px) { .payment-entry-page .card > div[style*="grid"] { grid-template-columns: minmax(0, 1fr) !important; } .payment-entry-page table { min-width: 650px; } }

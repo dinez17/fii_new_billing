@@ -1,0 +1,10 @@
+import {describe,it,expect} from "vitest";
+import {parsePurchaseText} from "../src/services/purchase-document";
+const line=(...parts:Array<[number,string]>)=>{let value="";for(const [col,text]of parts)value=value.padEnd(col)+text;return value;};
+const text=["TAX INVOICE",line([0,"Corporate Office :"],[75,"Invoice No :"],[110,"Dated :"]),line([0,"Example Street"],[75,"Atpl 718/26-27"],[110,"1-Nov-2026"]),line([75,"Customer P.O.No :"],[110,"Payment Due Date :"]),line([110,"10th of Every Month"]),"SL.No    Description                              HSN / SAC Code     Amount","1        Pure Internet Service From 01.11.26 to 30.11.26    998422     8,898.00","ADD :Output CGST @9%                             801.00","ADD :Output SGST @9%                             801.00","Total GST                                     1,602.00","Rounded Off","Total                                        10,500.00","Company GST No : 33AAMCA0043J1ZZ","Declaration:     For EXAMPLE TELECOM PVT LTD - (26-27)"].join("\n");
+describe("service invoice with output GST labels",()=>{
+ it("preserves spaced serials and derives the explicit monthly due day",()=>expect(parsePurchaseText(text)).toMatchObject({billNumber:"Atpl 718/26-27",invoiceDate:"2026-11-01",dueDate:"2026-11-10",supplierName:"EXAMPLE TELECOM PVT LTD"}));
+ it("recovers the service tax rate and supplier rounding",()=>{const d=parsePurchaseText(text);expect(d.taxRounding).toBe("WHOLE_RUPEE");expect(d.items[0]).toMatchObject({quantity:1,unitPrice:8898,gstRate:18,hsnSac:"998422"});expect(d.expectedTotal).toBe(10500);});
+ it("does not apply one invoice-level rate to unrelated HSN codes",()=>{const d=parsePurchaseText(text.replace("ADD :Output CGST","2        Another service                  998423     100.00\nADD :Output CGST"));expect(d.items.every(i=>i.gstRate===-1)).toBe(true);});
+ it("does not guess an earlier due day when the invoice is issued after it",()=>expect(parsePurchaseText(text.replace("1-Nov-2026","20-Nov-2026")).dueDate).toBe(""));
+});

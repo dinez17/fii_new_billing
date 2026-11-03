@@ -18,7 +18,7 @@ const server = createServer(async (req,res) => {
 await new Promise(r => server.listen(0,"127.0.0.1",r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {}) });
-const permissions = ["purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","credit_note:create","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","subscriber:create","backup:read","backup:update"];
+const permissions = ["product:create","purchase_invoice:create","purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","credit_note:create","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","subscriber:create","backup:read","backup:update"];
 const user = { id: "test-user", name: "Test Admin", email: "admin@example.test", userType: "STAFF" };
 const cash = "11111111-1111-4111-8111-111111111111", capital = "22222222-2222-4222-8222-222222222222";
 const accountRows = [{ id: cash, code: "CASH", name: "Verified cash", type: "ASSET", isMoneyAccount: true }, { id: capital, code: "CAPITAL", name: "Capital", type: "EQUITY", isMoneyAccount: false }];
@@ -30,7 +30,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
     const documentRequests=[];
-    let prospectBody;
+    let prospectBody,purchaseCreateBody;
     let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody, receiptEmailBody, receiptWhatsappBody, customerSort;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
@@ -70,6 +70,11 @@ try {
       if (path.endsWith("/candidates")) data = [{id:"line",journal:{entryDate:"2026-10-31",narration:"Verified customer receipt"}}];
       if(path === "/payments/tds-report")data={financialYear:years[0],items:[],totalTds:"0",entries:0};
       if(path === "/sales-documents") { if(request.method()==="POST") {prospectBody=request.postDataJSON();data={id:"prospect-quote"};} }
+      if(path==="/purchase-invoices/extract")data={supplierId:"supplier",supplierName:"Sample supplier",billNumber:"UPLOAD-001",invoiceDate:"2026-11-01",dueDate:"2026-11-10",roundOff:0,expectedTotal:118,sourceText:"Supplier invoice fixture",warnings:["Review all extracted values against the original before saving."],duplicate:null,items:[{productId:"product",description:"Service",quantity:1,unitPrice:100,discount:0,gstRate:18}]};
+      if(path==="/purchase-invoices/extract"&&request.postDataJSON().fileName==="goods.png")data={supplierId:"supplier",supplierName:"Sample supplier",pricesIncludeGst:true,billNumber:"PHOTO-001",invoiceDate:"2026-10-02",dueDate:"",roundOff:0,expectedTotal:75.52,requiresTotalMatch:true,sourceText:"Goods fixture",warnings:["Verify GST"],duplicate:null,items:[{productId:"",description:"Auto cable",unit:"NOS",quantity:2,unitPrice:37.76,discount:0,gstRate:-1,sourceLineTotal:75.52}]};
+      if(path==="/suppliers/supplier")data={id:"supplier",name:"Sample supplier",code:"SUP1"};
+      if(path==="/products/product")data={id:"product",name:"Service",sku:"S1",purchasePrice:"100",gstRate:"18",isService:true};
+      if(path==="/purchase-invoices"&&request.method()==="POST"){purchaseCreateBody=request.postDataJSON();data={id:"new-purchase"};}
       await route.fulfill({json:data});
     });
     const page = await context.newPage();
@@ -130,8 +135,43 @@ try {
     assert(await serviceDialog.getByRole("button",{name:"Schedule change",exact:true}).isDisabled());
     assert.equal(await serviceDialog.getByLabel("Edit subscriber type",{exact:true}).count(),0);
     await serviceDialog.getByRole("button",{name:"Close",exact:true}).click();checks++;
+    await page.goto(`${base}/purchases/new`);
+    await page.getByLabel("Choose invoice PDF or image",{exact:true}).setInputFiles({name:"invoice.png",mimeType:"image/png",buffer:Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN2kAAAAASUVORK5CYII=","base64")});
+    await page.getByRole("heading",{name:"Review extracted details",exact:true}).waitFor();
+    assert.equal(purchaseCreateBody,undefined);
+    assert(await page.getByRole("button",{name:"Save purchase bill",exact:true}).isDisabled());
+    await page.getByRole("checkbox",{name:/I checked the supplier/}).check();
+    await page.getByRole("button",{name:"Save purchase bill",exact:true}).click();
+    await page.waitForURL("**/purchases");
+    assert.equal(purchaseCreateBody.billNumber,"UPLOAD-001");assert.equal(purchaseCreateBody.sourceDocument.reviewed,true);assert.match(purchaseCreateBody.sourceDocument.dataUrl,/^data:image\/png;base64,/);checks+=2;
+    purchaseCreateBody=undefined;
+    await page.goto(`${base}/purchases/new`);
+    await page.getByLabel("Choose invoice PDF or image",{exact:true}).setInputFiles({name:"goods.png",mimeType:"image/png",buffer:Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN2kAAAAASUVORK5CYII=","base64")});
+    await page.getByLabel("New product name 1",{exact:true}).waitFor();
+    assert(await page.getByRole("checkbox",{name:/Create unmatched products automatically/}).isChecked());
+    assert(await page.getByRole("button",{name:"Save purchase bill",exact:true}).isDisabled());
+    assert(await page.getByRole("checkbox",{name:/Rates include GST/}).isChecked());
+    await page.getByLabel("Confirm GST rate for extracted items",{exact:true}).selectOption("18");
+    await page.locator("table tbody tr input[type=number]").first().fill("3");
+    await page.getByRole("checkbox",{name:/I checked the supplier/}).check();
+    assert(await page.getByRole("button",{name:"Save purchase bill",exact:true}).isDisabled());
+    await page.locator("table tbody tr input[type=number]").first().fill("2");
+    await page.getByRole("checkbox",{name:/I checked the supplier/}).check();
+    await page.getByRole("button",{name:"Save purchase bill",exact:true}).click();await page.waitForURL("**/purchases");
+    assert.equal(purchaseCreateBody.pricesIncludeGst,true);assert.equal(purchaseCreateBody.items[0].productId,undefined);assert.deepEqual(purchaseCreateBody.items[0].newProduct,{name:"Auto cable",unit:"NOS",isService:false});checks+=2;
     await page.goto(`${base}/payments`);
     await page.getByRole("button",{name:"+ Record Payment",exact:true}).click();
+    assert.equal(new URL(page.url()).pathname,"/payments/new");
+    assert.equal(await page.getByRole("dialog").count(),0);
+    await page.getByRole("combobox",{name:"Search customers",exact:true}).fill("Subscriber");
+    await page.getByRole("option",{name:/Subscriber customer/}).click();
+    await page.getByLabel("Money received ₹",{exact:false}).fill("90");
+    await page.getByRole("checkbox",{name:"Settle FII/26-27/99",exact:true}).check();
+    assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).inputValue(),"10.00");
+    await page.getByRole("checkbox",{name:"Settle FII/26-27/98",exact:true}).check();
+    assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).inputValue(),"110.00");
+    await page.getByRole("checkbox",{name:/Calculate TDS from selected/}).uncheck();
+    assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).isEditable(),true);checks++;
     assert.equal(await page.getByLabel("Mode",{exact:true}).inputValue(),"BANK_TRANSFER");
     await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"TMB",exact:true}).waitFor({state:"attached"});
     assert.equal(await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"Cash",exact:true}).count(),0);

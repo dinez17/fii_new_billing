@@ -21,7 +21,7 @@ export async function loadBusinessDocument(tenantId:string,kind:BusinessDocument
  }
  if(kind==="PURCHASE_INVOICE"){
   const d=await db.purchaseInvoice.findFirst({where:{id,tenantId,status:{not:"CANCELLED"}},include:{supplier:true,items:{include:{product:true}}}});if(!d||d.supplier.tenantId!==tenantId||d.items.some(i=>i.product.tenantId!==tenantId))throw invalid();
-  return {kind,id,number:d.ourNumber,title:"Purchase invoice summary",date:d.invoiceDate,party:d.supplier,partyType:"SUPPLIER" as const,status:d.status,total:d.grandTotal,reference:`Supplier bill: ${d.billNumber}`,notes:"Summary of the recorded supplier invoice; retain the supplier's original tax invoice.",rows:d.items.map(i=>({description:i.product.name,hsn:i.hsnSac??"",quantity:Number(i.quantity),rate:Number(i.unitPrice),taxRate:Number(i.gstRate),total:Number(i.lineTotal)}))};
+  return {kind,id,number:d.ourNumber,title:"Purchase invoice summary",date:d.invoiceDate,party:d.supplier,partyType:"SUPPLIER" as const,status:d.status,total:d.grandTotal,reference:`Supplier bill: ${d.billNumber}`,notes:`Summary of the recorded supplier invoice; retain the supplier's original tax invoice. Round off: ${d.roundOff.toFixed(2)}. Rates ${d.pricesIncludeGst?"include":"exclude"} GST.` ,rows:d.items.map(i=>({description:i.product.name,hsn:i.hsnSac??"",quantity:Number(i.quantity),rate:Number(i.unitPrice),taxRate:Number(i.gstRate),total:Number(i.lineTotal)}))};
  }
  const d=await db.purchaseReturn.findFirst({where:{id,tenantId},include:{supplier:true,purchaseInvoice:true}});if(!d||d.supplier.tenantId!==tenantId||d.purchaseInvoice.tenantId!==tenantId)throw invalid();
  const items=d.items as {productId:string;quantity?:number;qty?:number;unitPrice:number;gstRate:number}[];

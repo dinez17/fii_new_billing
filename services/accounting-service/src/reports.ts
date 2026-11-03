@@ -170,7 +170,7 @@ reportsRouter.get("/profit-loss", authorize("report:read"), h(async (req, res) =
     prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: inv }, _sum: { taxableValue: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: inv }, _sum: { taxableValue: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: inv }, _sum: { taxableValue: true, roundOff: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: inv }, _sum: { taxableValue: true } }),
     prisma.expense.groupBy({ by: ["categoryId"], where: { tenantId, status: "RECORDED", expenseDate: inv }, _sum: { amount: true } }),
   ]);
@@ -184,6 +184,8 @@ reportsRouter.get("/profit-loss", authorize("report:read"), h(async (req, res) =
   const manual=await manualJournalAdjustments(tenantId,q.from,q.to);for(const m of manual)if(m.account.type==="EXPENSE"&&m.debit!==m.credit)expenses.push({category:"Journal adjustment — "+m.account.name,amount:round(m.debit-m.credit)});
   const manualIncome=manual.filter(m=>m.account.type==="INCOME").reduce((n,m)=>n+m.credit-m.debit,0);
   const revenue = round(manualIncome + n(sales._sum.taxableValue) - n(creditNotes._sum.taxableValue) + n(debitNotes._sum.taxableValue));
+  const purchaseRounding = n(purchases._sum.roundOff);
+  if (purchaseRounding) expenses.push({category:"Purchase round-off",amount:purchaseRounding});
   const cogs = round(n(purchases._sum.taxableValue) - n(purchaseReturns._sum.taxableValue));
   const grossProfit = round(revenue - cogs);
   const [written,recovered]=await Promise.all([prisma.receivableWriteOff.aggregate({where:{tenantId,entryDate:inv},_sum:{amount:true}}),prisma.receivableWriteOff.aggregate({where:{tenantId,reversedAt:inv},_sum:{amount:true}})]);

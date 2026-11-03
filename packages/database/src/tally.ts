@@ -80,7 +80,7 @@ async function pnlNumbers(tenantId: string, from: Date, to: Date): Promise<PnlNu
     prisma.invoice.aggregate({ where: { tenantId, status: { notIn: ["DRAFT", "CANCELLED"] }, invoiceDate: range }, _sum: { taxableValue: true } }),
     prisma.creditNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: range }, _sum: { taxableValue: true } }),
     prisma.debitNote.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, noteDate: range }, _sum: { taxableValue: true } }),
-    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range }, _sum: { taxableValue: true } }),
+    prisma.purchaseInvoice.aggregate({ where: { tenantId, status: { not: "CANCELLED" }, invoiceDate: range }, _sum: { taxableValue: true, roundOff: true } }),
     prisma.purchaseReturn.aggregate({ where: { tenantId, returnDate: range }, _sum: { taxableValue: true } }),
     prisma.expense.groupBy({ by: ["categoryId"], where: { tenantId, status: "RECORDED", expenseDate: range }, _sum: { amount: true } }),
   ]);
@@ -96,6 +96,8 @@ async function pnlNumbers(tenantId: string, from: Date, to: Date): Promise<PnlNu
   const manual=await manualJournalAdjustments(tenantId,range.gte,range.lte);for(const m of manual)if(m.account.type==="EXPENSE"&&m.debit!==m.credit)expenses.push({category:"Journal adjustment — "+m.account.name,amount:r2(m.debit-m.credit)});
   const manualIncome=manual.filter(m=>m.account.type==="INCOME").reduce((n,m)=>n+m.credit-m.debit,0);
   const salesNet = r2(manualIncome + n(sales._sum.taxableValue) - n(cn._sum.taxableValue) + n(dn._sum.taxableValue));
+  const purchaseRounding = n(purch._sum.roundOff);
+  if (purchaseRounding) expenses.push({category:"Purchase round-off",amount:purchaseRounding});
   const purchasesNet = r2(n(purch._sum.taxableValue) - n(pret._sum.taxableValue));
   const [written,recovered]=await Promise.all([prisma.receivableWriteOff.aggregate({where:{tenantId,entryDate:range},_sum:{amount:true}}),prisma.receivableWriteOff.aggregate({where:{tenantId,reversedAt:range},_sum:{amount:true}})]);
   const writeOff=r2(n(written._sum.amount)-n(recovered._sum.amount));if(writeOff)expenses.push({category:"Receivable write-offs / recoveries",amount:writeOff});

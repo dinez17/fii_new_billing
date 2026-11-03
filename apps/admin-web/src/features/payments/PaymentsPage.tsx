@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+import { calculateTdsSettlement } from "./tds-calculation";
 import {WriteOffModal} from "../invoices/WriteOffModal";
 import { MoneyAccountSelect } from "../../components/MoneyAccountSelect";
 import { downloadPdf } from "../../lib/pdf-download";
@@ -20,9 +22,12 @@ interface PaymentRow {
   allocations: { amount: string; invoice: { invoiceNumber: string } }[];
 }
 
-const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function PaymentsPage() {
+export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
+  const navigate = useNavigate();
+  const [automaticTds, setAutomaticTds] = useState(true);
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPerm);
   const [reversing, setReversing] = useState<PaymentRow | null>(null);
@@ -39,7 +44,7 @@ export function PaymentsPage() {
   const [writeOffPicking,setWriteOffPicking]=useState(false);
   const [writeOffInvoiceId,setWriteOffInvoiceId]=useState("");
   const [writeOffInvoice,setWriteOffInvoice]=useState<OpenInvoice|null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(entryOnly);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     customerId: "",
@@ -55,7 +60,7 @@ export function PaymentsPage() {
 
   const list = useQuery({
     queryKey: ["payments", page, search, pageSize, period.params, status],
-    enabled: period.ready,
+    enabled: !entryOnly && period.ready,
     queryFn: async () => (await api.get("/payments", { params: { page, limit: pageSize, search: search || undefined, ...period.params, status: status || undefined } })).data as
       { items: PaymentRow[]; total: number; limit: number; totalCollected: string },
   });
@@ -75,10 +80,12 @@ export function PaymentsPage() {
     enabled: (creating || writeOffPicking) && !!form.customerId,
   });
 
-  const allocated = Object.values(form.allocations).reduce((s, v) => s + Number(v || 0), 0);
+  const tdsCalculation = calculateTdsSettlement((openInvoices.data ?? []).filter(i=>selectedInvoices.includes(i.id)).map(i=>({id:i.id,balance:invBalance(i),date:i.invoiceDate,number:i.invoiceNumber})), form.amount);
+  const effectiveForm = automaticTds && entryOnly ? {...form, tdsAmount:tdsCalculation.tdsAmount, allocations:tdsCalculation.allocations, tdsAllocations:tdsCalculation.tdsAllocations} : form;
+  const allocated = Object.values(effectiveForm.allocations).reduce((s, v) => s + Number(v || 0), 0);
   const amount = Number(form.amount || 0);
-  const tds = Number(form.tdsAmount || 0);
-  const allocatedTds = Object.values(form.tdsAllocations).reduce((sum, value) => sum + Number(value || 0), 0);
+  const tds = Number(effectiveForm.tdsAmount || 0);
+  const allocatedTds = Object.values(effectiveForm.tdsAllocations).reduce((sum, value) => sum + Number(value || 0), 0);
 
   function autoAllocate() {
     let left = amount, tdsLeft = tds;
@@ -106,12 +113,13 @@ export function PaymentsPage() {
         mode: form.mode,
         paymentDate: form.paymentDate,
         reference: form.reference || undefined,
-        allocations: [...new Set([...Object.keys(form.allocations), ...Object.keys(form.tdsAllocations)])]
-          .map(invoiceId => ({ invoiceId, amount: Number(form.allocations[invoiceId] || 0), tdsAmount: Number(form.tdsAllocations[invoiceId] || 0) }))
+        allocations: [...new Set([...Object.keys(effectiveForm.allocations), ...Object.keys(effectiveForm.tdsAllocations)])]
+          .map(invoiceId => ({ invoiceId, amount: Number(effectiveForm.allocations[invoiceId] || 0), tdsAmount: Number(effectiveForm.tdsAllocations[invoiceId] || 0) }))
           .filter(a => a.amount + a.tdsAmount > 0),
       });
     },
     onSuccess: () => {
+      if(entryOnly) navigate("/payments");
       setCreating(false); setError("");
       setForm({ ...form, mode:"BANK_TRANSFER", financialAccountId:"", customerId: "", amount: "", tdsAmount: "", tdsSection: "", reference: "", allocations: {}, tdsAllocations: {} });
       qc.invalidateQueries({ queryKey: ["payments"] });
@@ -141,8 +149,9 @@ export function PaymentsPage() {
 
   return (
     <>
+      {!entryOnly && <>
       <div className="page-heading"><h2 className="page-title">Payments</h2><div className="page-heading-actions">{hasPerm("payment:create") && (
-          <button className="primary" onClick={() => { setForm(current=>({...current,mode:"BANK_TRANSFER",financialAccountId:""})); setCreating(true); setError(""); }}>+ Record Payment</button>
+          <button className="primary" onClick={() => navigate("/payments/new")}>+ Record Payment</button>
         )}</div></div>
       <div className="toolbar">
         <RowsPerPage value={pageSize} onChange={setPageSize} />
@@ -184,6 +193,7 @@ export function PaymentsPage() {
         </div>
       )}
 
+      </>}
       {reversing && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="reverse-payment-title">
         <h3 id="reverse-payment-title">Reverse receipt {reversing.receipt?.receiptNumber}</h3>
         <p>This corrects the original entry: cash {inr(reversing.amount)}, TDS {inr(reversing.tdsAmount)}. Invoice balances will reopen, and ledger/daybook reversals use the original payment date. Saved daybook closings may need review. This does not send money to the customer.</p>
@@ -191,22 +201,25 @@ export function PaymentsPage() {
         {reverse.isError && <div className="error">{errMessage(reverse.error)}</div>}
         <div className="actions"><button disabled={reverse.isPending} onClick={() => setReversing(null)}>Keep receipt</button><button disabled={reverse.isPending || reverseReason.trim().length < 10} onClick={() => reverse.mutate()}>Confirm reversal</button></div>
       </div></div>}
-      {writeOffPicking && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true"><h3>Select invoice to write off</h3><p>No money is received. The write-off records an expense and reduces the selected invoice balance.</p><label>Customer</label><EntitySelect kind="customers" value={form.customerId} onChange={id=>{setForm({...form,customerId:id});setWriteOffInvoiceId("");}}/><label htmlFor="write-off-invoice">Invoice</label><select id="write-off-invoice" value={writeOffInvoiceId} onChange={e=>setWriteOffInvoiceId(e.target.value)}><option value="">Select outstanding invoice</option>{openInvoices.data?.map(i=><option key={i.id} value={i.id}>{i.invoiceNumber} — {inr(invBalance(i))}</option>)}</select>{openInvoices.isError&&<div className="error">{errMessage(openInvoices.error)}</div>}<div className="actions"><button onClick={()=>setWriteOffPicking(false)}>Cancel</button><button disabled={!writeOffInvoiceId} onClick={()=>{const invoice=openInvoices.data?.find(i=>i.id===writeOffInvoiceId);if(invoice){setWriteOffInvoice(invoice);setWriteOffPicking(false);}}}>Continue write-off</button></div></div></div>}
+      {writeOffPicking && <div className="modal-overlay"><div className="modal" role="dialog" aria-modal="true"><h3>Select invoice to write off</h3><p>No money is received. The write-off records an expense and reduces the selected invoice balance.</p><label>Customer</label><EntitySelect kind="customers" value={form.customerId} onChange={id=>{setForm({...form,customerId:id});setWriteOffInvoiceId("");}}/><label htmlFor="write-off-invoice">Invoice</label><select id="write-off-invoice" value={writeOffInvoiceId} onChange={e=>setWriteOffInvoiceId(e.target.value)}><option value="">Select outstanding invoice</option>{openInvoices.data?.map(i=><option key={i.id} value={i.id}>{i.invoiceNumber} — {inr(invBalance(i))}</option>)}</select>{openInvoices.isError&&<div className="error">{errMessage(openInvoices.error)}</div>}<div className="actions"><button onClick={()=>{setWriteOffPicking(false);if(entryOnly)navigate("/payments");}}>Cancel</button><button disabled={!writeOffInvoiceId} onClick={()=>{const invoice=openInvoices.data?.find(i=>i.id===writeOffInvoiceId);if(invoice){setWriteOffInvoice(invoice);setWriteOffPicking(false);}}}>Continue write-off</button></div></div></div>}
       {writeOffInvoice && <WriteOffModal invoice={{...writeOffInvoice,balance:String(invBalance(writeOffInvoice))}} close={()=>setWriteOffInvoice(null)}/>}
       {creating && (
-        <div className="modal-overlay entry-fullpage-overlay" onClick={() => setCreating(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="payment-entry-title" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
-            <h3 id="payment-entry-title">Record payment</h3>
+        <div className="payment-entry-page">
+          <div className="page-heading"><h2 className="page-title" id="payment-entry-title">Record payment</h2><button onClick={()=>navigate("/payments")}>← Back to payments</button></div>
+          <div className="card">
+            <div className="toolbar"><label><input type="checkbox" checked={automaticTds} onChange={e=>{setAutomaticTds(e.target.checked);setForm({...form,tdsAmount:"",allocations:{},tdsAllocations:{}});}}/> Calculate TDS from selected invoice balances minus money received</label></div>
+            {automaticTds && <p className="document-help">Select only invoices being settled. The entire unpaid difference is treated as TDS; use manual mode for an ordinary partial payment.</p>}
+            {automaticTds && selectedInvoices.length>0 && <div className="toolbar" role="status">Selected balance {inr(amount + tds)} − money received {inr(amount)} = TDS {inr(tds)}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
               <div>
                 <label>Customer *</label>
-                <EntitySelect kind="customers" value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id, allocations: {}, tdsAllocations: {} })} />
+                <EntitySelect kind="customers" value={form.customerId} onChange={(id) => {setForm({ ...form, customerId: id, allocations: {}, tdsAllocations: {} });setSelectedInvoices([]);}} />
               </div>
               <div><label htmlFor="payment-cash">Money received ₹ *</label>
                 <input id="payment-cash" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div><label htmlFor="payment-tds">TDS deducted ₹</label><input id="payment-tds" type="number" min="0" step="0.01" value={form.tdsAmount} onChange={(e) => setForm({ ...form, tdsAmount: e.target.value, tdsAllocations: {} })} /></div>
+              <div><label htmlFor="payment-tds">TDS deducted ₹</label><input id="payment-tds" type="number" min="0" step="0.01" readOnly={automaticTds} value={effectiveForm.tdsAmount} onChange={(e) => setForm({ ...form, tdsAmount: e.target.value, tdsAllocations: {} })} /></div>
               <div><label htmlFor="payment-tds-section">TDS section / reference (optional)</label><input id="payment-tds-section" maxLength={30} value={form.tdsSection} onChange={(e) => setForm({ ...form, tdsSection: e.target.value })} /></div>
             </div>
             <p className="document-help">Enter actual money received separately. TDS is a non-cash settlement and must be allocated to invoices. Enter 0 received for a TDS-only entry. Settlement: {inr(amount + tds)}.</p>
@@ -225,29 +238,31 @@ export function PaymentsPage() {
             </div>
 
             <p className="document-help">Mode is how the customer paid. The account is where your business received the money—for example HDFC Current Account, SBI or Petty Cash. Add accounts in Settings → Cash / bank accounts.</p>
+            {openInvoices.isFetching && <p role="status">Loading outstanding invoices…</p>}
             {form.customerId && (
               <>
                 <div className="toolbar" style={{ marginTop: 12, marginBottom: 4 }}>
                   <label style={{ margin: 0 }}>Allocate to invoices</label>
                   <div className="spacer" />
-                  <button className="small" disabled={amount + tds <= 0} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
+                  <button className="small" disabled={automaticTds || amount + tds <= 0} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
                 </div>
                 <table style={{ fontSize: 13 }}>
-                  <thead><tr><th>Invoice</th><th>Date</th><th>Total</th><th>Balance</th><th style={{ width: 130 }}>Cash ₹</th><th style={{ width: 110 }}>TDS ₹</th></tr></thead>
+                  <thead><tr>{automaticTds && <th>Settle</th>}<th>Invoice</th><th>Date</th><th>Total</th><th>Balance</th><th style={{ width: 130 }}>Cash ₹</th><th style={{ width: 110 }}>TDS ₹</th></tr></thead>
                   <tbody>
                     {openInvoices.data?.map((inv) => {
                       const balance = invBalance(inv);
                       return (
                         <tr key={inv.id}>
+                          {automaticTds && <td><input type="checkbox" aria-label={`Settle ${inv.invoiceNumber}`} checked={selectedInvoices.includes(inv.id)} onChange={e=>setSelectedInvoices(e.target.checked?[...selectedInvoices,inv.id]:selectedInvoices.filter(id=>id!==inv.id))}/></td>}
                           <td><code>{inv.invoiceNumber}</code></td>
                           <td>{formatDate(inv.invoiceDate)}</td>
                           <td>{inr(inv.grandTotal)}</td>
                           <td>{inr(balance)}</td>
                           <td>
-                            <input type="number" value={form.allocations[inv.id] ?? ""}
+                            <input type="number" min="0" step="0.01" readOnly={automaticTds} value={effectiveForm.allocations[inv.id] ?? ""}
                               onChange={(e) => setForm({ ...form, allocations: { ...form.allocations, [inv.id]: e.target.value } })} />
                           </td>
-                          <td><input type="number" min="0" step="0.01" aria-label={`TDS for ${inv.invoiceNumber}`} value={form.tdsAllocations[inv.id] ?? ""} onChange={(e) => setForm({ ...form, tdsAllocations: { ...form.tdsAllocations, [inv.id]: e.target.value } })} /></td>
+                          <td><input type="number" min="0" step="0.01" aria-label={`TDS for ${inv.invoiceNumber}`} readOnly={automaticTds} value={effectiveForm.tdsAllocations[inv.id] ?? ""} onChange={(e) => setForm({ ...form, tdsAllocations: { ...form.tdsAllocations, [inv.id]: e.target.value } })} /></td>
                         </tr>
                       );
                     })}
@@ -265,12 +280,13 @@ export function PaymentsPage() {
               </>
             )}
 
+            {automaticTds && selectedInvoices.length>0 && !tdsCalculation.valid && <div className="error">Money received must be between zero and the selected invoice balance.</div>}
             {openInvoices.isError && <div className="error">{errMessage(openInvoices.error)}</div>}
             {error && <div className="error">{error}</div>}
             <div className="actions">
-              <button onClick={() => setCreating(false)}>Cancel</button>
+              <button onClick={() => navigate("/payments")}>Cancel</button>
               <button className="primary"
-                disabled={create.isPending || (form.mode!=="CASH"&&amount>0&&!form.financialAccountId) || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
+                disabled={openInvoices.isFetching || (automaticTds && (!selectedInvoices.length || !tdsCalculation.valid)) || create.isPending || (form.mode!=="CASH"&&amount>0&&!form.financialAccountId) || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
                 onClick={() => create.mutate()}>
                 {create.isPending ? "Saving…" : "Record payment"}
               </button>

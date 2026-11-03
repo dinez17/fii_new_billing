@@ -1,5 +1,6 @@
+import {sourceDocumentBody,decodePurchaseDocument} from "./purchase-document.js";
 import { numberedDocumentIds, inDocumentOrder, Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
-import { badRequest, computeGst, isValidGstin, notFound, partyListFilters, transactionPeriodFilters } from "@fii/common";
+import { badRequest, encryptSecret, computePurchaseGst, isValidGstin, notFound, partyListFilters, transactionPeriodFilters } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import { z } from "zod";
 
@@ -16,6 +17,7 @@ export const supplierBody = z.object({
 });
 
 export const purchaseItem = z.object({
+  hsnSac: z.string().regex(/^\d{4,8}$/).optional(),
   productId: z.string().uuid(),
   quantity: z.coerce.number().positive(),
   unitPrice: z.coerce.number().min(0),
@@ -23,12 +25,21 @@ export const purchaseItem = z.object({
   gstRate: z.coerce.number().min(0).max(28),
 });
 
+const purchaseDraftItem=purchaseItem.extend({
+ productId:z.string().uuid().optional(),
+ newProduct:z.object({name:z.string().trim().min(2).max(150),unit:z.string().trim().min(1).max(10).default("NOS"),isService:z.boolean().default(false)}).optional(),
+}).refine(i=>!!i.productId!==!!i.newProduct,{message:"Choose an existing product or create a new one"});
+
 export const purchaseInvoiceBody = z.object({
+  pricesIncludeGst:z.boolean().default(false),
+  taxRounding: z.enum(["PAISE","WHOLE_RUPEE"]).optional(),
+  sourceDocument: sourceDocumentBody.extend({reviewed:z.literal(true)}).optional(),
   supplierId: z.string().uuid(),
   billNumber: z.string().min(1).max(50),
+  roundOff: z.coerce.number().finite().min(-1).max(1).multipleOf(0.01).optional(),
   invoiceDate: z.coerce.date(),
   dueDate: z.coerce.date().optional(),
-  items: z.array(purchaseItem).min(1).max(100),
+  items: z.array(purchaseDraftItem).min(1).max(100),
   /** when billing a PO whose goods arrived via GRN, stock is NOT added again */
   purchaseOrderId: z.string().uuid().optional(),
 });
@@ -149,6 +160,7 @@ export async function supplierLedger(tenantId: string, id: string) {
 
 // ── Purchase invoices
 export async function createPurchaseInvoice(tenantId: string, actorId: string, input: z.infer<typeof purchaseInvoiceBody>) {
+  const sourceDocument = input.sourceDocument ? decodePurchaseDocument(input.sourceDocument) : null;
   const fy = await activeFy(tenantId, input.invoiceDate);
   const [tenant, supplier] = await Promise.all([
     prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
@@ -169,23 +181,44 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
   }
 
   const isInterState = (supplier.stateCode ?? tenant.stateCode) !== tenant.stateCode;
-  const totals = computeGst(input.items, isInterState);
-
-  // resolve product info for item rows
-  const products = await prisma.product.findMany({
-    where: { id: { in: input.items.map((i) => i.productId) }, tenantId },
-  });
-  const productById = new Map(products.map((p) => [p.id, p]));
-  for (const it of input.items) {
-    if (!productById.has(it.productId)) throw notFound(`Product ${it.productId}`);
-  }
+  const totals = computePurchaseGst(input.items, isInterState, input.taxRounding, input.pricesIncludeGst);
+  const roundOff = new Prisma.Decimal(input.roundOff ?? totals.roundOff);
+  const exact = new Prisma.Decimal(totals.taxableValue).add(totals.cgst).add(totals.sgst).add(totals.igst);
+  totals.roundOff = roundOff.toFixed(2);
+  totals.grandTotal = exact.add(roundOff).toFixed(2);
+  if (new Prisma.Decimal(totals.grandTotal).isNegative()) throw badRequest("Round-off cannot make the bill total negative");
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // Serialize automatic product codes and name reuse within this tenant.
+      if(input.items.some(i=>i.newProduct))await tx.$queryRaw`SELECT id FROM "Tenant" WHERE id=${tenantId} FOR UPDATE`;
+      if(po && input.items.some(i=>i.newProduct))throw badRequest("A received purchase order must use its existing products");
+      const existing=await tx.product.findMany({where:{tenantId}});
+      const normalized=(s:string)=>s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
+      let nextSku=Math.max(1,...existing.filter(p=>/^PRD-\d+$/.test(p.sku)).map(p=>Number(p.sku.slice(4))+1));
+      const resolvedItems=[];
+      for(const item of input.items){
+        let product=item.productId?existing.find(p=>p.id===item.productId):undefined;
+        if(item.newProduct){
+          if(!normalized(item.newProduct.name))throw badRequest("New product name needs letters or numbers");
+          product=existing.find(p=>normalized(p.name)===normalized(item.newProduct!.name));
+          if(product&&!product.isActive)throw badRequest(`Product "${product.name}" is inactive. Activate or select another product.`);
+          if(!product){
+            product=await tx.product.create({data:{tenantId,sku:`PRD-${String(nextSku++).padStart(5,"0")}`,name:item.newProduct.name,unit:item.newProduct.unit,isService:item.newProduct.isService,purchasePrice:input.pricesIncludeGst?new Prisma.Decimal(item.unitPrice).div(new Prisma.Decimal(1).add(new Prisma.Decimal(item.gstRate).div(100))).toDecimalPlaces(2):item.unitPrice,gstRate:item.gstRate,hsnSac:item.hsnSac}});
+            existing.push(product);
+            await tx.auditLog.create({data:{tenantId,userId:actorId,action:"PRODUCT_CREATED_FROM_PURCHASE",entity:"Product",entityId:product.id,after:{name:product.name,sku:product.sku,supplierBill:input.billNumber}}});
+          }
+        }
+        if(!product||!product.isActive)throw notFound("Active product in this tenant");
+        resolvedItems.push({...item,productId:product.id});
+      }
+      const productById=new Map(existing.map(p=>[p.id,p]));
       const ourNumber = await allocateNumber(tx, tenantId, "PURCHASE_INVOICE", fy.code);
       const pi = await tx.purchaseInvoice.create({
         data: {
           tenantId,
+          sourceDocumentEncrypted: sourceDocument ? encryptSecret(JSON.stringify({fileName:sourceDocument.fileName,mimeType:sourceDocument.mimeType,base64:sourceDocument.base64})) : undefined,
+          sourceDocumentHash: sourceDocument?.hash,
           billNumber: input.billNumber,
           ourNumber,
           fyCode: fy.code,
@@ -199,13 +232,16 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
           cgst: totals.cgst,
           sgst: totals.sgst,
           igst: totals.igst,
+          pricesIncludeGst:input.pricesIncludeGst,
+          taxRounding:input.taxRounding??"PAISE",
+          roundOff: totals.roundOff,
           grandTotal: totals.grandTotal,
           status: "UNPAID",
           createdById: actorId,
           items: {
-            create: input.items.map((it, i) => ({
+            create: resolvedItems.map((it, i) => ({
               productId: it.productId,
-              hsnSac: productById.get(it.productId)!.hsnSac,
+              hsnSac: it.hsnSac ?? productById.get(it.productId)!.hsnSac,
               quantity: new Prisma.Decimal(it.quantity),
               unitPrice: new Prisma.Decimal(it.unitPrice),
               discount: new Prisma.Decimal(it.discount),
@@ -226,7 +262,7 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
         await tx.purchaseOrder.update({ where: { id: po.id }, data: { status: "CLOSED" } });
       } else {
         // direct bill: stock IN per non-service item in the same tx
-        for (const it of input.items) {
+        for (const it of resolvedItems) {
           const product = productById.get(it.productId)!;
           if (product.isService) continue;
           await applyStock(tx, {
@@ -245,11 +281,13 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
         invoiceDate: input.invoiceDate.toISOString(),
       }, { actorUserId: actorId }));
 
-      return pi;
-    });
+      if(sourceDocument)await tx.auditLog.create({data:{tenantId,userId:actorId,action:"PURCHASE_SOURCE_ATTACHED",entity:"PurchaseInvoice",entityId:pi.id,after:{fileName:sourceDocument.fileName,sizeBytes:sourceDocument.bytes.length,sha256:sourceDocument.hash,reviewed:true}}});
+      const {sourceDocumentEncrypted,...result}=pi;
+      return {...result,hasSourceDocument:!!sourceDocumentEncrypted};
+    },{timeout:30_000});
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      throw badRequest(`Bill number "${input.billNumber}" already exists for this supplier`);
+      throw badRequest(`Bill number "${input.billNumber}" or the uploaded file already exists for this supplier/tenant`);
     }
     throw err;
   }
@@ -270,11 +308,11 @@ export async function listPurchaseInvoices(tenantId: string, q: z.infer<typeof p
   const [items, total] = await Promise.all([
     prisma.purchaseInvoice.findMany({
       where:{AND:[where,{id:{in:ids}}]},
-      include: { supplier: { select: { id: true, name: true } } },
+      select: {id:true,ourNumber:true,billNumber:true,invoiceDate:true,dueDate:true,fyCode:true,supplierId:true,taxableValue:true,cgst:true,sgst:true,igst:true,roundOff:true,grandTotal:true,amountPaid:true,status:true,sourceDocumentHash:true,supplier:{select:{id:true,name:true}}},
     }),
     prisma.purchaseInvoice.count({ where }),
   ]);
-  return { items:inDocumentOrder(items,ids), total, page: q.page, limit: q.limit };
+  return { items:inDocumentOrder(items,ids).map(item=>({...item,hasSourceDocument:!!item.sourceDocumentHash})), total, page: q.page, limit: q.limit };
 }
 
 export async function getPurchaseInvoice(tenantId: string, id: string) {
@@ -288,7 +326,8 @@ export async function getPurchaseInvoice(tenantId: string, id: string) {
     },
   });
   if (!pi) throw notFound("Purchase invoice");
-  return pi;
+  const {sourceDocumentEncrypted,...result}=pi;
+  return {...result,hasSourceDocument:!!sourceDocumentEncrypted};
 }
 
 // ── Supplier payments
@@ -377,7 +416,7 @@ export async function createPurchaseReturn(tenantId: string, actorId: string, in
     if (it.quantity > bought) throw badRequest(`Returning more than purchased for a product (${it.quantity} > ${bought})`);
   }
 
-  const totals = computeGst(input.items, pi.isInterState);
+  const totals = computePurchaseGst(input.items, pi.isInterState, pi.taxRounding==="WHOLE_RUPEE"?"WHOLE_RUPEE":"PAISE",pi.pricesIncludeGst);
 
   return prisma.$transaction(async (tx) => {
     const returnNumber = await allocateNumber(tx, tenantId, "PURCHASE_INVOICE", `${fy.code}-RET`);

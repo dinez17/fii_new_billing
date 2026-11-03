@@ -1,0 +1,1 @@
+ALTER TABLE "PurchaseInvoice" ADD COLUMN "taxRounding" TEXT NOT NULL DEFAULT 'PAISE';

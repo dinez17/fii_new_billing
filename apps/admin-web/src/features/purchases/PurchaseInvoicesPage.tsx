@@ -12,10 +12,11 @@ import { TransactionFilters, useTransactionPeriod } from "../../components/Trans
 
 interface PiRow {
   id: string; ourNumber: string; billNumber: string; invoiceDate: string;
-  grandTotal: string; amountPaid: string; status: string;
+  grandTotal: string; amountPaid: string; status: string; hasSourceDocument?: boolean;
   supplier: { id: string; name: string };
 }
 interface PiDetail extends PiRow {
+  pricesIncludeGst?:boolean;
   isInterState: boolean; taxableValue: string; cgst: string; sgst: string; igst: string;
   items: { id: string; quantity: string; unitPrice: string; gstRate: string; lineTotal: string; product: { name: string; sku: string; unit: string } }[];
 }
@@ -57,7 +58,7 @@ export function PurchaseInvoicesPage() {
     queryKey: ["open-bills", pay?.supplierId],
     queryFn: async () => {
       const { data } = await api.get("/purchase-invoices", { params: { page: 1, limit: 100, supplierId: pay!.supplierId } });
-      return (data.items as PiRow[]).filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
+  return (data.items as PiRow[]).filter((i) => i.status === "UNPAID" || i.status === "PARTIAL");
     },
     enabled: !!pay,
   });
@@ -83,6 +84,10 @@ export function PurchaseInvoicesPage() {
   const allocated = pay ? Object.values(pay.allocations).reduce((s, v) => s + Number(v || 0), 0) : 0;
   const statusBadge = (s: string) =>
     <span className={`badge ${s === "PAID" ? "ok" : s === "CANCELLED" ? "warn" : ""}`}>{s}</span>;
+
+      async function downloadOriginal(pi:PiRow){
+    try{const {data}=await api.get(`/purchase-invoices/${pi.id}/original`,{responseType:"blob"});const url=URL.createObjectURL(data);const a=document.createElement("a");a.href=url;a.download=`${pi.ourNumber.replace(/[^a-zA-Z0-9_-]/g,"-")}-original.${data.type==="application/pdf"?"pdf":data.type==="image/png"?"png":"jpg"}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60_000);}catch(err){alert(errMessage(err));}
+  }
 
   return (
     <>
@@ -114,7 +119,7 @@ export function PurchaseInvoicesPage() {
               <td>{inr(pi.amountPaid)}</td>
               <td>{statusBadge(pi.status)}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <DocumentDeliveryActions base="/purchase-invoices" id={pi.id} label="purchase invoice" number={pi.ourNumber} status={pi.status}/><IconButton className="small" onClick={() => setDetailId(pi.id)} icon="view" label="View">View</IconButton>{" "}
+                {pi.hasSourceDocument && <IconButton className="small" icon="download" label="Download original supplier invoice" onClick={()=>void downloadOriginal(pi)}/>}<DocumentDeliveryActions base="/purchase-invoices" id={pi.id} label="purchase invoice" number={pi.ourNumber} status={pi.status}/><IconButton className="small" onClick={() => setDetailId(pi.id)} icon="view" label="View">View</IconButton>{" "}
                 {hasPerm("supplier_payment:create") && pi.status !== "PAID" && pi.status !== "CANCELLED" && (
                   <IconButton className="small" onClick={() => {
                     setPay({
@@ -155,7 +160,7 @@ export function PurchaseInvoicesPage() {
               {detail.data.isInterState ? " · IGST" : " · CGST+SGST"}
             </p>
             <ListTable style={{ fontSize: 13 }}>
-              <thead><tr><th>Product</th><th>Qty</th><th>Rate</th><th>GST%</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
+              <thead><tr><th>Product</th><th>Qty</th><th>Rate {detail.data.pricesIncludeGst?"(incl. GST)":"(excl. GST)"}</th><th>GST%</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
               <tbody>
                 {detail.data.items.map((it) => (
                   <tr key={it.id}>

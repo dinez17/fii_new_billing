@@ -93,7 +93,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/invoices/:id/edit" element={<ProtectedRoute permission="invoice:update"><NewInvoicePage /></ProtectedRoute>} />
             <Route path="/notes" element={<ProtectedRoute permission="credit_note:read"><NotesPage /></ProtectedRoute>} />
             <Route path="/reports/tds" element={<ProtectedRoute permission="payment:read"><TdsReport /></ProtectedRoute>} />
-            <Route path="/payments" element={<ProtectedRoute permission="payment:read"><PaymentsPage /></ProtectedRoute>} />
+            <Route path="/payments/new" element={<ProtectedRoute permission="payment:create"><PaymentsPage key="payment-entry" entryOnly /></ProtectedRoute>} />
+            <Route path="/payments" element={<ProtectedRoute permission="payment:read"><PaymentsPage key="payment-list" /></ProtectedRoute>} />
             <Route path="/billing-runs" element={<ProtectedRoute permission="billing_run:read"><BillingRunsPage /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute permission="notification_template:read"><NotificationsPage /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute permission="supplier:read"><SuppliersPage /></ProtectedRoute>} />

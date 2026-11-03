@@ -1,10 +1,11 @@
+import {sourceDocumentBody,extractPurchaseDocument,originalPurchaseDocument} from "./services/purchase-document.js";
 import {z} from "zod";
 import {buildBusinessDocumentPdfBuffer,queueBusinessDocument} from "@fii/pdf";
 import express from "express";
 import helmet from "helmet";
 import { Router } from "express";
-import { authenticate, authorize } from "@fii/auth";
-import { httpMetrics, mountOps, notFound } from "@fii/common";
+import { authenticate, authorize, permissionsForRoles } from "@fii/auth";
+import { httpMetrics, mountOps, notFound, forbidden } from "@fii/common";
 import { prisma } from "@fii/database";
 import { startOutboxRelay } from "@fii/kafka";
 import { errorHandler, h, log, parse } from "./http.js";
@@ -13,7 +14,7 @@ import * as po from "./services/po.service.js";
 
 const app = express();
 app.use(helmet());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "8mb" }));
 app.set("trust proxy", 1);
 app.use(httpMetrics("purchase-service"));
 app.get("/healthz", (_req, res) => res.json({ ok: true, service: "purchase-service" }));
@@ -46,11 +47,23 @@ purchaseInvoices.use(authenticate);
 purchaseInvoices.get("/", authorize("purchase_invoice:read"), h(async (req, res) => {
   res.json(await svc.listPurchaseInvoices(req.auth!.tenantId, parse(svc.pagination, req.query)));
 }));
+purchaseInvoices.post("/extract", authorize("purchase_invoice:create"), h(async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  res.json(await extractPurchaseDocument(req.auth!.tenantId,parse(sourceDocumentBody,req.body)));
+}));
+purchaseInvoices.get("/:id/original", authorize("purchase_invoice:read"), h(async(req,res)=>{
+  const file=await originalPurchaseDocument(req.auth!.tenantId,req.params.id);
+  res.setHeader("Content-Type",file.mimeType);res.setHeader("Cache-Control","no-store");
+  res.setHeader("Content-Disposition",`attachment; filename="invoice-original.${file.mimeType==="application/pdf"?"pdf":file.mimeType==="image/png"?"png":"jpg"}"`);
+  res.send(file.bytes);
+}));
 purchaseInvoices.get("/:id", authorize("purchase_invoice:read"), h(async (req, res) => {
   res.json(await svc.getPurchaseInvoice(req.auth!.tenantId, req.params.id));
 }));
 purchaseInvoices.post("/", authorize("purchase_invoice:create"), h(async (req, res) => {
-  res.status(201).json(await svc.createPurchaseInvoice(req.auth!.tenantId, req.auth!.sub, parse(svc.purchaseInvoiceBody, req.body)));
+  const body=parse(svc.purchaseInvoiceBody,req.body);
+  if(body.items.some(i=>i.newProduct)&&!(await permissionsForRoles(req.auth!.roleIds)).has("product:create"))throw forbidden("Requires product:create to create missing products");
+  res.status(201).json(await svc.createPurchaseInvoice(req.auth!.tenantId,req.auth!.sub,body));
 }));
 
 // ── Supplier payments
