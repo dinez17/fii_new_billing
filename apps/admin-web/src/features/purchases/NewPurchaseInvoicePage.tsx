@@ -26,7 +26,7 @@ export function NewPurchaseInvoicePage() {
   const [source,setSource]=useState<PurchaseSource|null>(null);
   const [reviewed,setReviewed]=useState(false);
   const [poNumber, setPoNumber] = useState("");
-  const [form, setForm] = useState({
+  const [form, setFormState] = useState({
     supplierId: "",
     billNumber: "",
     roundOff: "",
@@ -37,7 +37,7 @@ export function NewPurchaseInvoicePage() {
     items: [{ ...EMPTY }] as Line[],
   });
 
-  useEffect(()=>setReviewed(false),[form]);
+  const setForm = (next:React.SetStateAction<typeof form>) => {setReviewed(false);setFormState(next);};
   function applyExtraction(draft:PurchaseExtraction,file:PurchaseSource){
     setExtraction(draft);setSource(file);setReviewed(false);
     setForm(current=>({...current,supplierId:draft.supplierId,pricesIncludeGst:!!draft.pricesIncludeGst,taxRounding:draft.taxRounding??"PAISE",billNumber:draft.billNumber,invoiceDate:draft.invoiceDate||current.invoiceDate,dueDate:draft.dueDate||"",roundOff:draft.roundOff===null?"":String(draft.roundOff),items:draft.items.length?draft.items.map(i=>({...i,isService:!!draft.inferredServiceQuantity,unit:i.unit??"NOS",quantity:String(i.quantity),unitPrice:String(i.unitPrice),discount:String(i.discount),gstRate:String(i.gstRate)})):[{...EMPTY}]}));
