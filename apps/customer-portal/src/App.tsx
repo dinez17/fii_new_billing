@@ -52,19 +52,31 @@ function Login() {
   }
 
   return (
-    <div className="login-wrap">
+    <div className="login-wrap modern-login">
+      <section className="login-story" aria-label="About your customer portal">
+        <img className="login-story-logo" src={APP_LOGO} alt={APP_NAME} />
+        <span className="login-eyebrow">{APP_TAGLINE}</span>
+        <h2>Your account. All in one place.</h2>
+        <p>Stay on top of your invoices, payments and services with a simple view of your account.</p>
+        <div className="login-highlights">
+          <div><strong>Invoices</strong><span>View and download your bills</span></div>
+          <div><strong>Payments</strong><span>Check balances and receipts</span></div>
+          <div><strong>Support</strong><span>Raise and track service requests</span></div>
+        </div>
+        <footer>FII VANIGA · Your customer portal</footer>
+      </section>
       <form className="login-card" onSubmit={onSubmit}>
-        <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
-        <h1>{APP_NAME}</h1>
-        <p><span className="brand-tagline">{APP_TAGLINE}</span>Customer portal · View invoices and pay online</p>
+        <span className="login-eyebrow">Customer portal</span>
+        <h1>Welcome back</h1>
+        <p>Sign in to view your account.</p>
         <label htmlFor="portal-email">Email</label>
-        <input id="portal-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        <input id="portal-email" type="email" autoComplete="username" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
         <label htmlFor="portal-password">Password</label>
-        <input id="portal-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <input id="portal-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         <label htmlFor="portal-otp">Authenticator code (if enabled)</label>
         <input id="portal-otp" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp}
           onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} placeholder="123456" />
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error" role="alert">{error}</div>}
         <button className="primary" style={{ width: "100%", marginTop: 20 }} disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>

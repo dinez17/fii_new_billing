@@ -42,19 +42,31 @@ export function LoginPage() {
   }
 
   return (
-    <div className="login-wrap">
+    <div className="login-wrap modern-login">
+      <section className="login-story" aria-label="About FII VANIGA">
+        <img className="login-story-logo" src={APP_LOGO} alt={APP_NAME} />
+        <span className="login-eyebrow">{APP_TAGLINE}</span>
+        <h2>{isPlatformConsole ? "One platform. Every business." : "Less paperwork. More business."}</h2>
+        <p>{isPlatformConsole ? "Manage your tenants, licenses and platform access from one workspace." : "Bring your billing, subscriptions and accounts together. Spend less time on everyday admin and more time moving your business forward."}</p>
+        <div className="login-highlights">
+          <div><strong>{isPlatformConsole ? "Tenants" : "Billing"}</strong><span>{isPlatformConsole ? "Manage business workspaces" : "Quotes, invoices and receipts"}</span></div>
+          <div><strong>{isPlatformConsole ? "Licenses" : "Subscriptions"}</strong><span>{isPlatformConsole ? "Plans and access controls" : "Recurring services, simplified"}</span></div>
+          <div><strong>{isPlatformConsole ? "Access" : "Insights"}</strong><span>{isPlatformConsole ? "Keep administration organised" : "Know where your business stands"}</span></div>
+        </div>
+        <footer>FII VANIGA · Built for your everyday business</footer>
+      </section>
       <form className="login-card" onSubmit={onSubmit}>
-        <img className="login-logo" src={APP_LOGO} alt={APP_NAME} />
-        <h1>{APP_NAME}</h1>
-        <p><span className="brand-tagline">{APP_TAGLINE}</span>{isPlatformConsole ? "Superadmin sign in · Tenant and license management" : "Sign in to the tenant admin console"}</p>
-        <label>Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
-        <label>Password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <label>Authenticator code (if enabled)</label>
-        <input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp}
+        <span className="login-eyebrow">{isPlatformConsole ? "Platform administration" : "Your business workspace"}</span>
+        <h1>Welcome back</h1>
+        <p>Sign in to {APP_NAME} to continue.</p>
+        <label htmlFor="login-email">Email address</label>
+        <input id="login-email" type="email" autoComplete="username" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        <label htmlFor="login-password">Password</label>
+        <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <label htmlFor="login-otp">Authenticator code <span className="login-optional">if enabled</span></label>
+        <input id="login-otp" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={otp}
           onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} placeholder="123456" />
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error" role="alert">{error}</div>}
         <button className="primary" style={{ width: "100%", marginTop: 18 }} disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
