@@ -2,7 +2,7 @@ import {useAuth} from "../../stores/auth";
 import {PurchaseUpload,type PurchaseExtraction,type PurchaseSource} from "./PurchaseUpload";
 import { computePurchaseGst } from "../../../../../packages/common/src/gst";
 import { IconButton } from "../../components/IconButton";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
@@ -37,7 +37,7 @@ export function NewPurchaseInvoicePage() {
     items: [{ ...EMPTY }] as Line[],
   });
 
-  const setForm = (next:React.SetStateAction<typeof form>) => {setReviewed(false);setFormState(next);};
+  const setForm = useCallback((next:React.SetStateAction<typeof form>) => {setReviewed(false);setFormState(next);},[]);
   function applyExtraction(draft:PurchaseExtraction,file:PurchaseSource){
     setExtraction(draft);setSource(file);setReviewed(false);
     setForm(current=>({...current,supplierId:draft.supplierId,pricesIncludeGst:!!draft.pricesIncludeGst,taxRounding:draft.taxRounding??"PAISE",billNumber:draft.billNumber,invoiceDate:draft.invoiceDate||current.invoiceDate,dueDate:draft.dueDate||"",roundOff:draft.roundOff===null?"":String(draft.roundOff),items:draft.items.length?draft.items.map(i=>({...i,isService:!!draft.inferredServiceQuantity,unit:i.unit??"NOS",quantity:String(i.quantity),unitPrice:String(i.unitPrice),discount:String(i.discount),gstRate:String(i.gstRate)})):[{...EMPTY}]}));
@@ -66,7 +66,7 @@ export function NewPurchaseInvoicePage() {
         }));
       } catch (err) { setError(errMessage(err)); }
     })();
-  }, [poId]);
+  }, [poId,setForm]);
 
 
   const create = useMutation({
