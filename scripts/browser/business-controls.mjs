@@ -170,7 +170,10 @@ try {
     assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).inputValue(),"10.00");
     await page.getByRole("checkbox",{name:"Settle FII/26-27/98",exact:true}).check();
     assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).inputValue(),"110.00");
-    await page.getByRole("checkbox",{name:/Calculate TDS from selected/}).uncheck();
+    assert(await page.getByRole("button",{name:"Auto-allocate (oldest first)",exact:true}).isEnabled());
+    await page.getByRole("button",{name:"Auto-allocate (oldest first)",exact:true}).click();
+    assert.equal(await page.getByRole("checkbox",{name:/Calculate TDS from selected/}).isChecked(),false);
+    assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).inputValue(),"110.00");
     assert.equal(await page.getByLabel("TDS deducted ₹",{exact:true}).isEditable(),true);checks++;
     assert.equal(await page.getByLabel("Mode",{exact:true}).inputValue(),"BANK_TRANSFER");
     await page.getByLabel("Receiving bank account",{exact:true}).getByRole("option",{name:"TMB",exact:true}).waitFor({state:"attached"});

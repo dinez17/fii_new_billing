@@ -60,7 +60,7 @@ export function NonGstCompanyTab() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>{bankFields.map(field)}</div>
       <h4>Branding (optional)</h4>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-        {[["logoUrl", "Company logo"], ["signatureUrl", "Authorised signature"]].map(([key, label]) => <div key={key}>
+        {[["logoUrl", "Company logo"], ["signatureUrl", "Company seal & authorised signature"]].map(([key, label]) => <div key={key}>
           <label>{label} — PNG/JPEG, max 280 KB<input type="file" accept="image/png,image/jpeg" onChange={e => void upload(key, e.target.files?.[0])} /></label>
           {form[key] && <div style={{ display: "flex", gap: 12, alignItems: "center" }}><img src={form[key]} alt={label} style={{ width: 110, height: 65, objectFit: "contain" }} /><button type="button" onClick={() => change(key, "")}>Remove</button></div>}
         </div>)}

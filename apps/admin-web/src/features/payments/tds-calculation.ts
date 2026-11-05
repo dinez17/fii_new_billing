@@ -4,7 +4,7 @@ export function calculateTdsSettlement(invoices: {id:string; balance:number; dat
   const cash=cents(Number(received || 0));
   const rows=[...invoices].sort((a,b)=>a.date.localeCompare(b.date)||a.number.localeCompare(b.number));
   const total=rows.reduce((sum,i)=>sum+Math.max(0,cents(i.balance)),0);
-  const valid=Number.isFinite(cash)&&cash>=0&&cash<=total;
+  const valid=Number.isFinite(cash)&&cash>=0;
   const allocations:Record<string,string>={},tdsAllocations:Record<string,string>={};
   let left=valid?cash:0;
   if(valid)for(const row of rows){
@@ -13,5 +13,5 @@ export function calculateTdsSettlement(invoices: {id:string; balance:number; dat
     if(take)allocations[row.id]=(take/100).toFixed(2);
     if(balance>take)tdsAllocations[row.id]=((balance-take)/100).toFixed(2);
   }
-  return {valid,tdsAmount:valid?((total-cash)/100).toFixed(2):"0.00",allocations,tdsAllocations};
+  return {valid,selectedBalance:(total/100).toFixed(2),tdsAmount:valid?(Math.max(0,total-cash)/100).toFixed(2):"0.00",allocations,tdsAllocations};
 }

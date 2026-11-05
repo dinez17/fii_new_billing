@@ -46,6 +46,11 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
     }
     case TOPICS.INVOICE_CREATED: {
       const p = event.payload as { invoiceId: string; invoiceNumber: string; customerId: string; grandTotal: string; dueDate: string };
+      const invoice=await prisma.invoice.findFirst({where:{tenantId,id:p.invoiceId},include:{customer:true}});
+      if (!invoice) break;
+      // Manual invoices are emailed only through the explicit Mail action.
+      // Keep the domain event for accounting and preserve billing-run delivery.
+      if (invoice.invoiceType !== "MANUAL") {
       const c = await customerContact(tenantId, p.customerId);
       let attachments: { filename: string; content: Buffer }[] | undefined;
       try {
@@ -68,7 +73,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         refId: p.invoiceId,
         attachments,
       });
-      const invoice=await prisma.invoice.findFirst({where:{tenantId,id:p.invoiceId},include:{customer:true}});
+      }
       const phone=normalizeWhatsappPhone(invoice?.customer.whatsappPhone||invoice?.customer.phone);
       if(invoice && !["DRAFT","CANCELLED"].includes(invoice.status) && invoice.customer.whatsappInvoiceEnabled&&phone){await queueInvoiceWhatsapp(tenantId,p.invoiceId,{to:"+"+phone});}
       break;

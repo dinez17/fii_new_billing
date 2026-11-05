@@ -1,3 +1,4 @@
+import { SignatureUpload } from "./SignatureUpload";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { ListTable } from "../../components/ListPagination";
@@ -393,6 +394,7 @@ function CompanyTab() {
           </div>
         )}
       </div>
+      <SignatureUpload value={company.data?.signatureUrl} canEdit={canEdit} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {field("name", "Company name *")}
         {field("legalName", "Legal name")}

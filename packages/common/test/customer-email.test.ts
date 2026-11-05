@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
 import { companyMailCc, customerMailRecipients } from "../src/customer-email.js";
+it("accepts legacy comma and semicolon recipient lists while rejecting header injection",()=>{
+ expect(customerMailRecipients({email:"Buyer@example.test, Accounts@example.test",additionalEmails:["accounts@example.test; finance@example.test"]},"company@example.test")).toBe("buyer@example.test, accounts@example.test, finance@example.test");
+ expect(customerMailRecipients({email:"buyer@example.test,\r\nBcc: attacker@example.test"},"company@example.test")).toBe("company@example.test");
+});
 it("sends billing documents to primary and additional recipients without duplicates", () => {
   expect(customerMailRecipients({ email: "Primary@example.test", additionalEmails: ["accounts@example.test", "primary@example.test"] })).toBe("primary@example.test, accounts@example.test");
   expect(customerMailRecipients({ email: null, additionalEmails: ["accounts@example.test"] })).toBe("accounts@example.test");

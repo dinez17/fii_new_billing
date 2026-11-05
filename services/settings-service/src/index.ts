@@ -1,3 +1,4 @@
+import { validateSignatureImage } from "./signature-image.js";
 import express from "express";
 import helmet from "helmet";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
@@ -105,6 +106,24 @@ app.post("/api/v1/settings/company/logo", authenticate, authorize("settings:upda
 app.delete("/api/v1/settings/company/logo", authenticate, authorize("settings:update"), h(async (req, res) => {
   await prisma.tenant.update({ where: { id: req.auth!.tenantId }, data: { logoUrl: null } });
   res.json({ ok: true });
+}));
+
+// Private tenant signature: excluded from the public branding endpoint.
+app.post("/api/v1/settings/company/signature", authenticate, authorize("settings:update"), h(async (req,res)=>{
+ const dataUrl=validateSignatureImage(req.body.dataUrl);
+ await prisma.$transaction(async tx=>{
+  const old=await tx.tenant.findUniqueOrThrow({where:{id:req.auth!.tenantId},select:{signatureUrl:true}});
+  await tx.tenant.update({where:{id:req.auth!.tenantId},data:{signatureUrl:dataUrl}});
+  await tx.auditLog.create({data:{tenantId:req.auth!.tenantId,userId:req.auth!.sub,action:"COMPANY_SIGNATURE_UPDATED",entity:"Tenant",entityId:req.auth!.tenantId,before:{configured:!!old.signatureUrl},after:{configured:true}}});
+ });
+ res.json({ok:true});
+}));
+app.delete("/api/v1/settings/company/signature", authenticate, authorize("settings:update"), h(async (req,res)=>{
+ await prisma.$transaction(async tx=>{
+  await tx.tenant.update({where:{id:req.auth!.tenantId},data:{signatureUrl:null}});
+  await tx.auditLog.create({data:{tenantId:req.auth!.tenantId,userId:req.auth!.sub,action:"COMPANY_SIGNATURE_REMOVED",entity:"Tenant",entityId:req.auth!.tenantId,after:{configured:false}}});
+ });
+ res.json({ok:true});
 }));
 
 // ── Financial years

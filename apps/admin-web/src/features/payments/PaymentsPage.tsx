@@ -99,7 +99,8 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
       const withheld = Math.min(tdsLeft, balance - take);
       if (withheld > 0) { tdsAlloc[inv.id] = withheld.toFixed(2); tdsLeft -= withheld; }
     }
-    setForm({ ...form, allocations: alloc, tdsAllocations: tdsAlloc });
+    setAutomaticTds(false);
+    setForm({ ...form, tdsAmount: effectiveForm.tdsAmount, allocations: alloc, tdsAllocations: tdsAlloc });
   }
 
   const create = useMutation({
@@ -209,7 +210,7 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
           <div className="card">
             <div className="toolbar"><label><input type="checkbox" checked={automaticTds} onChange={e=>{setAutomaticTds(e.target.checked);setForm({...form,tdsAmount:"",allocations:{},tdsAllocations:{}});}}/> Calculate TDS from selected invoice balances minus money received</label></div>
             {automaticTds && <p className="document-help">Select only invoices being settled. The entire unpaid difference is treated as TDS; use manual mode for an ordinary partial payment.</p>}
-            {automaticTds && selectedInvoices.length>0 && <div className="toolbar" role="status">Selected balance {inr(amount + tds)} − money received {inr(amount)} = TDS {inr(tds)}</div>}
+            {automaticTds && selectedInvoices.length>0 && <div className="toolbar" role="status">Selected balance {inr(tdsCalculation.selectedBalance)} · money received {inr(amount)} · TDS {inr(tds)}{amount > Number(tdsCalculation.selectedBalance) && <> · Excess {inr(amount - Number(tdsCalculation.selectedBalance))} retained as customer credit</>}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
               <div>
                 <label>Customer *</label>
@@ -244,8 +245,9 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
                 <div className="toolbar" style={{ marginTop: 12, marginBottom: 4 }}>
                   <label style={{ margin: 0 }}>Allocate to invoices</label>
                   <div className="spacer" />
-                  <button className="small" disabled={automaticTds || amount + tds <= 0} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
+                  <button className="small" disabled={openInvoices.isFetching || !openInvoices.data?.length || amount + tds <= 0} onClick={autoAllocate}>Auto-allocate (oldest first)</button>
                 </div>
+                {automaticTds && <p className="document-help">Auto-allocate distributes the current cash and TDS amounts oldest first and switches to editable allocation mode. It does not calculate an additional TDS deduction.</p>}
                 <table style={{ fontSize: 13 }}>
                   <thead><tr>{automaticTds && <th>Settle</th>}<th>Invoice</th><th>Date</th><th>Total</th><th>Balance</th><th style={{ width: 130 }}>Cash ₹</th><th style={{ width: 110 }}>TDS ₹</th></tr></thead>
                   <tbody>
@@ -280,7 +282,7 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
               </>
             )}
 
-            {automaticTds && selectedInvoices.length>0 && !tdsCalculation.valid && <div className="error">Money received must be between zero and the selected invoice balance.</div>}
+            {automaticTds && selectedInvoices.length>0 && !tdsCalculation.valid && <div className="error">Enter a valid, non-negative money received amount.</div>}
             {openInvoices.isError && <div className="error">{errMessage(openInvoices.error)}</div>}
             {error && <div className="error">{error}</div>}
             <div className="actions">
