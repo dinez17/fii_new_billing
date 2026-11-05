@@ -3,13 +3,13 @@
  *
  *   notification.send   → explicit {template, to, vars} (scheduler reminders …)
  *   invoice.created     → INVOICE_GENERATED
- *   payment.success     → PAYMENT_RECEIVED
+ *   payment.success     → SMS / opted-in WhatsApp (receipt email is manual)
  *   payment.failed      → PAYMENT_FAILED
  */
 import { prisma,queueReceiptNotification,queueInvoiceWhatsapp } from "@fii/database";
 import { createLogger, startOpsServer, customerMailRecipients, normalizeWhatsappPhone } from "@fii/common";
 import { TOPICS, runConsumer, type EventEnvelope } from "@fii/kafka";
-import { buildInvoicePdfBuffer, buildReceiptPdfBuffer } from "@fii/pdf";
+import { buildInvoicePdfBuffer } from "@fii/pdf";
 import { dispatch, retryNotifications } from "./send.js";
 
 const log = createLogger("notification-worker");
@@ -83,24 +83,14 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       const payment = await prisma.payment.findFirst({ where: { tenantId, id: p.paymentId } });
       if (!payment || payment.status !== "SUCCESS") break;
       const c = await customerContact(tenantId, p.customerId);
-      let attachments: { filename: string; content: Buffer }[] | undefined;
-      try {
-        const receipt = await prisma.receipt.findFirst({ where: { tenantId, paymentId: p.paymentId } });
-        if (receipt) {
-          const { buffer } = await buildReceiptPdfBuffer(tenantId, receipt.id);
-          attachments = [{ filename: `${p.receiptNumber.replace(/\//g, "-")}.pdf`, content: buffer }];
-        }
-      } catch (err) {
-        log.warn({ err: String(err) }, "receipt PDF attach failed — sending without");
-      }
+      // Receipt emails are sent only through the explicit receipt Mail action.
       await dispatch({
         tenantId,
         templateCode: "PAYMENT_RECEIVED",
-        to: { email: c.billingEmail, phone: c.phone },
+        to: { phone: c.phone },
         vars: { customerName: c.name, amount: Number(p.amount).toFixed(2), receiptNumber: p.receiptNumber },
         refType: "PAYMENT",
         refId: p.paymentId,
-        attachments,
       });
       const receipt=await prisma.receipt.findFirst({where:{tenantId,paymentId:p.paymentId},include:{payment:{include:{customer:true}}}});
       const phone=normalizeWhatsappPhone(receipt?.payment.customer.whatsappPhone||receipt?.payment.customer.phone);

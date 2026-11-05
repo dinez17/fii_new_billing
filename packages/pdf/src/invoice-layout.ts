@@ -50,7 +50,7 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
   };
   const footer = () => {
     rule(799);
-    text("Computer-generated invoice · All amounts in INR", L, 808, 400, 7.5, false, MUTED);
+    text("This is a Computer Generated Invoice no Signature Required", L, 808, 400, 7.5, false, MUTED);
     text(`Page ${page}`, R - 60, 808, 60, 7.5, false, MUTED, "right");
   };
   const nextPage = () => {
@@ -67,7 +67,7 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
   const billingBody = lines([customer.name, bill || "Address not provided", customer.gstin ? `GSTIN: ${customer.gstin}` : null, customer.phone ? `Phone: ${customer.phone}` : null, customer.email]);
   const installBody = lines([customer.name, installation || "Address not provided"]);
 
-  const title = invoice.chargeGst ? "TAX INVOICE" : "INVOICE - WITHOUT GST";
+  const title = invoice.chargeGst ? "TAX INVOICE" : "INVOICE";
   const periodLabel = invoice.periodStart && invoice.periodEnd ? `${date(invoice.periodStart)} - ${date(invoice.periodEnd)}` : "-";
   const status = invoice.status.replace(/_/g, " ");
   const box = (x: number, top: number, width: number, h: number, color = RULE) => doc.rect(x, top, width, h).lineWidth(0.6).strokeColor(color).stroke();
@@ -102,7 +102,6 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
     + (headerContact ? 3 + height(headerContact, 320 - logoOffset, 8) : 0)
     + (tenant.gstin ? 3 + height(`GSTIN: ${tenant.gstin}`, 320 - logoOffset, 8.5, true) : 0);
   const metaHeight = height(invoice.chargeGst ? "TAX INVOICE" : "INVOICE", 180, 16, true)
-    + (!invoice.chargeGst ? 3 + height("WITHOUT GST", 180, 8, true) : 0)
     + 5 + height(invoice.invoiceNumber, 180, 11, true)
     + 4 + height(`Invoice date: ${date(invoice.invoiceDate)}\nDue date: ${date(invoice.dueDate)}`, 180, 8.5)
     + 4 + height(invoice.status.replace(/_/g, " "), 180, 8, true);
@@ -124,7 +123,6 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
 
   const metaX = R - 180;
   let metaY = text(invoice.chargeGst ? "TAX INVOICE" : "INVOICE", metaX, y, 180, 16, true, headerInk, "right");
-  if (!invoice.chargeGst) metaY = text("WITHOUT GST", metaX, metaY + 3, 180, 8, true, headerMuted, "right");
   metaY = text(invoice.invoiceNumber, metaX, metaY + 5, 180, 11, true, headerInk, "right");
   metaY = text(`Invoice date: ${date(invoice.invoiceDate)}\nDue date: ${date(invoice.dueDate)}`, metaX, metaY + 4, 180, 8.5, false, headerMuted, "right");
   metaY = text(invoice.status.replace(/_/g, " "), metaX, metaY + 4, 180, 8, true, invoice.status === "CANCELLED" ? "#B42318" : (modern ? "#B5EEDC" : ACCENT), "right");
@@ -193,7 +191,7 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
     doc.rect(0, 0, 13, 842).fill(ACCENT);
     text("INVOICE", L, 28, 240, 28, true);
     text(invoice.invoiceNumber, L + 260, 33, W - 260, 12, true, INK, "right");
-    text(invoice.chargeGst ? "GST / TAX INVOICE" : "WITHOUT GST", L, 62, 230, 8, true, ACCENT);
+    text(invoice.chargeGst ? "GST / TAX INVOICE" : "INVOICE", L, 62, 230, 8, true, ACCENT);
     text(status, R - 180, 62, 180, 8, true, ACCENT, "right");
     y = 85;
     const sideW = 170, rightX = L + 191, rightW = W - 191;
@@ -216,7 +214,7 @@ export function renderCommercialInvoice(doc: PDFKit.PDFDocument, invoice: Invoic
     // Minimal: large editorial title and a right-hand company column.
     text("Invoice.", L, 30, 250, 34, true);
     text(invoice.invoiceNumber, L, 76, 260, 12, true);
-    text(invoice.chargeGst ? "GST INVOICE" : "WITHOUT GST", L, 94, 260, 8, false, MUTED);
+    text(invoice.chargeGst ? "GST INVOICE" : "INVOICE", L, 94, 260, 8, false, MUTED);
     const endCompany = company(L + 300, 32, W - 300, false, 11, true);
     y = Math.max(110, endCompany + 6); rule(y); y += 14;
     const rightX = L + 348, rightW = W - 348;

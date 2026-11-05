@@ -28,10 +28,10 @@ export function renderReferenceInvoice(doc: PDFKit.PDFDocument, invoice: Invoice
     if (!url?.startsWith("data:image/")) return false;
     try { doc.image(Buffer.from(url.split(",")[1], "base64"), x, top, { fit: [width, h] }); return true; } catch { return false; }
   };
-  const footer = () => { if (telecom) return; line(800); text("Computer-generated invoice | All amounts in INR", L, 807, W - 60, 7, false, "left", muted); text(`Page ${page}`, R - 60, 807, 60, 7, false, "right", muted); };
+  const footer = () => { if (telecom) { text("This is a Computer Generated Invoice no Signature Required", L, 831, W, 7, false, "center", muted); return; } line(800); text("This is a Computer Generated Invoice no Signature Required", L, 807, W - 60, 7, false, "left", muted); text(`Page ${page}`, R - 60, 807, 60, 7, false, "right", muted); };
   const nextPage = () => { footer(); doc.addPage({ size: "A4", margin: 0 }); page++; text(tenant.name, L, 28, 310, 11, true); text(invoice.invoiceNumber, R - 190, 28, 190, 10, true, "right"); line(49); y = 60; };
   const ensure = (h: number) => { if (y + h > BOTTOM) nextPage(); };
-  const title = invoice.chargeGst ? "TAX INVOICE" : "INVOICE - WITHOUT GST";
+  const title = invoice.chargeGst ? "TAX INVOICE" : "INVOICE";
   const period = invoice.periodStart && invoice.periodEnd ? `${date(invoice.periodStart)} - ${date(invoice.periodEnd)}` : "-";
   const address = join([tenant.addressLine1, tenant.addressLine2, [tenant.city, tenant.pincode].filter(Boolean).join(" - ")]);
   const contact = [tenant.phone, tenant.email].filter(Boolean).join(" | ");
@@ -70,7 +70,7 @@ export function renderReferenceInvoice(doc: PDFKit.PDFDocument, invoice: Invoice
     text(installation, split + 5, y + 17, rightW - 10, 8);
     text(`Customer Code: ${c.code}    GSTIN: ${c.gstin || "-"}`, split + 5, y + partyH - 13, rightW - 10, 7.5); y += partyH;
   } else if (service) {
-    y = 10; text(invoice.chargeGst ? "Tax Invoice" : "Invoice - Without GST", L, y, W, 12, true, "center"); y += 13;
+    y = 10; text(invoice.chargeGst ? "Tax Invoice" : "Invoice", L, y, W, 12, true, "center"); y += 13;
     const top = y, split = L + W * 0.565, rightW = R - split;
     const hasLogo = image(tenant.logoUrl, L + 4, top + 10, 62, 54), x = L + (hasLogo ? 74 : 6), width = split - x - 5;
     let end = text(tenant.name, x, top + 6, width, 10.5, true);

@@ -20,7 +20,7 @@ suite("PO number appears in every invoice design",()=>{
    for(const template of templates){
     await prisma.setting.upsert({where:{tenantId_group_key:{tenantId,group:"INVOICE",key:"template"}},create:{tenantId,group:"INVOICE",key:"template",value:template},update:{value:template}});
     const spy=vi.spyOn(PDFDocument.prototype,"text");
-    try{const {buffer}=await buildInvoicePdfBuffer(tenantId,invoiceId);expect(buffer.subarray(0,5).toString()).toBe("%PDF-");expect(spy.mock.calls.map(c=>String(c[0])).join("\n"),template).toContain("PO-VERIFY-2026-09");
+    try{const {buffer}=await buildInvoicePdfBuffer(tenantId,invoiceId);expect(buffer.subarray(0,5).toString()).toBe("%PDF-");expect(spy.mock.calls.map(c=>String(c[0])).join("\n"),template).toContain("This is a Computer Generated Invoice no Signature Required");expect(spy.mock.calls.map(c=>String(c[0])).join("\n"),template).toContain("PO-VERIFY-2026-09");
      if(process.env.PO_TEMPLATE_QA_DIR){mkdirSync(process.env.PO_TEMPLATE_QA_DIR,{recursive:true});writeFileSync(join(process.env.PO_TEMPLATE_QA_DIR,template+(chargeGst?"-gst":"-without-gst")+".pdf"),buffer);}
     }finally{spy.mockRestore();}
    }
