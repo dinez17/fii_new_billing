@@ -30,7 +30,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
     const documentRequests=[];
-    let prospectBody,purchaseCreateBody;
+    let prospectBody,purchaseCreateBody;const paymentBodies=[];
     let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody, receiptEmailBody, receiptWhatsappBody, customerSort;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
@@ -58,6 +58,7 @@ try {
       if(path === "/subscribers/subscriber")data=data.items[0];
       if(path === "/subscribers/subscriber/schedules")data=[];
       if (path === "/payments") data = {items:[{id:"payment",amount:"90",tdsAmount:"10",mode:"CASH",paymentDate:"2026-10-31",status:"SUCCESS",customer:{name:"Sample Customer",whatsappInvoiceEnabled:true},receipt:{id:"receipt",receiptNumber:"R-001"},allocations:[]}],total:1,limit:20};
+      if(path === "/payments"&&request.method()==="POST"){paymentBodies.push(request.postDataJSON());data={id:"new-payment"};}
       if(path === "/receipts/receipt/email"){receiptEmailBody=request.postDataJSON();data={queued:true};}
       if(path === "/receipts/receipt/whatsapp"){receiptWhatsappBody=request.postDataJSON();data={queued:true};}
       if (path === "/payments/payment/reverse") { reverseBody = request.postDataJSON(); data = {reversed:true}; }
@@ -183,6 +184,22 @@ try {
     await page.getByLabel("Mode",{exact:true}).selectOption("CASH");
     assert.equal(await page.getByLabel("Cash account",{exact:true}).inputValue(),"");
     assert.equal(await page.getByLabel("Cash account",{exact:true}).getByRole("option",{name:"TMB",exact:true}).count(),0);checks++;
+    await page.getByRole("button",{name:"Record & add next",exact:true}).click();
+    await page.getByText("Payment recorded. Enter the next payment.",{exact:true}).waitFor();
+    assert.equal(new URL(page.url()).pathname,"/payments/new");assert.equal(paymentBodies.length,1);assert.equal(paymentBodies[0].tdsAmount,110);
+    assert.equal(await page.getByLabel("Money received ₹",{exact:false}).inputValue(),"");
+    assert.equal(await page.getByRole("combobox",{name:"Search customers",exact:true}).inputValue(),"");
+    assert(await page.getByRole("checkbox",{name:/Calculate TDS from selected/}).isChecked());
+    assert.equal(await page.getByLabel("Mode",{exact:true}).inputValue(),"BANK_TRANSFER");
+    assert(await page.getByRole("button",{name:"Record & add next",exact:true}).isDisabled());checks++;
+    await page.getByRole("combobox",{name:"Search customers",exact:true}).fill("Subscriber");
+    await page.getByRole("option",{name:/Subscriber customer/}).click();
+    await page.getByLabel("Money received ₹",{exact:false}).fill("100");
+    await page.getByRole("checkbox",{name:"Settle FII/26-27/99",exact:true}).check();
+    await page.getByLabel("Mode",{exact:true}).selectOption("CASH");
+    await page.getByRole("button",{name:"Record payment",exact:true}).click();await page.waitForURL("**/payments");
+    assert.equal(paymentBodies.length,2);assert.equal(paymentBodies[1].tdsAmount,0);checks++;
+    await page.goto(`${base}/payments/new`);
     await page.getByLabel("Mode",{exact:true}).selectOption("WRITE_OFF");
     await page.getByRole("heading",{name:"Select invoice to write off",exact:true}).waitFor();
     assert(await page.getByRole("button",{name:"Continue write-off",exact:true}).isDisabled());

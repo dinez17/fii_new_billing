@@ -6,7 +6,7 @@ import { downloadPdf } from "../../lib/pdf-download";
 import { formatDate } from "../../lib/date";
 import { IconButton } from "../../components/IconButton";
 import { RowsPerPage, usePageSize } from "../../components/ListPagination";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
@@ -26,6 +26,8 @@ const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFra
 
 export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
   const navigate = useNavigate();
+  const customerEntry = useRef<HTMLDivElement>(null);
+  const [savedNext, setSavedNext] = useState(false);
   const [automaticTds, setAutomaticTds] = useState(true);
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const qc = useQueryClient();
@@ -104,7 +106,8 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
   }
 
   const create = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (_addNext: boolean) => {
+      setSavedNext(false);
       await api.post("/payments", {
         customerId: form.customerId,
         amount,
@@ -119,18 +122,23 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
           .filter(a => a.amount + a.tdsAmount > 0),
       });
     },
-    onSuccess: () => {
-      if(entryOnly) navigate("/payments");
-      setCreating(false); setError("");
+    onSuccess: (_result, addNext) => {
+      if(entryOnly && !addNext) navigate("/payments");
+      setCreating(addNext); setError(""); setSavedNext(addNext);
+      setSelectedInvoices([]); setAutomaticTds(true);
+      if(addNext) requestAnimationFrame(()=>{customerEntry.current?.querySelector("input")?.focus();customerEntry.current?.scrollIntoView({block:"center",behavior:"smooth"});});
       setForm({ ...form, mode:"BANK_TRANSFER", financialAccountId:"", customerId: "", amount: "", tdsAmount: "", tdsSection: "", reference: "", allocations: {}, tdsAllocations: {} });
       qc.invalidateQueries({ queryKey: ["payments"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["open-invoices"] });
       qc.invalidateQueries({ queryKey: ["tds-report"] });
       qc.invalidateQueries({ queryKey: ["customers"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (err) => setError(errMessage(err)),
   });
+
+  const saveDisabled = openInvoices.isFetching || (automaticTds && (!selectedInvoices.length || !tdsCalculation.valid)) || create.isPending || (form.mode!=="CASH"&&amount>0&&!form.financialAccountId) || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001;
 
   const [sendingReceipt,setSendingReceipt]=useState<string|null>(null);
   async function sendReceipt(p:PaymentRow,channel:"email"|"whatsapp"){
@@ -208,13 +216,14 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
         <div className="payment-entry-page">
           <div className="page-heading"><h2 className="page-title" id="payment-entry-title">Record payment</h2><button onClick={()=>navigate("/payments")}>← Back to payments</button></div>
           <div className="card">
+            {savedNext && <div className="success-banner" role="status">Payment recorded. Enter the next payment.</div>}
             <div className="toolbar"><label><input type="checkbox" checked={automaticTds} onChange={e=>{setAutomaticTds(e.target.checked);setForm({...form,tdsAmount:"",allocations:{},tdsAllocations:{}});}}/> Calculate TDS from selected invoice balances minus money received</label></div>
             {automaticTds && <p className="document-help">Select only invoices being settled. The entire unpaid difference is treated as TDS; use manual mode for an ordinary partial payment.</p>}
             {automaticTds && selectedInvoices.length>0 && <div className="toolbar" role="status">Selected balance {inr(tdsCalculation.selectedBalance)} · money received {inr(amount)} · TDS {inr(tds)}{amount > Number(tdsCalculation.selectedBalance) && <> · Excess {inr(amount - Number(tdsCalculation.selectedBalance))} retained as customer credit</>}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
               <div>
                 <label>Customer *</label>
-                <EntitySelect kind="customers" value={form.customerId} onChange={(id) => {setForm({ ...form, customerId: id, allocations: {}, tdsAllocations: {} });setSelectedInvoices([]);}} />
+                <div ref={customerEntry}><EntitySelect kind="customers" value={form.customerId} onChange={(id) => {setForm({ ...form, customerId: id, allocations: {}, tdsAllocations: {} });setSelectedInvoices([]);}} /></div>
               </div>
               <div><label htmlFor="payment-cash">Money received ₹ *</label>
                 <input id="payment-cash" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
@@ -288,10 +297,11 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
             <div className="actions">
               <button onClick={() => navigate("/payments")}>Cancel</button>
               <button className="primary"
-                disabled={openInvoices.isFetching || (automaticTds && (!selectedInvoices.length || !tdsCalculation.valid)) || create.isPending || (form.mode!=="CASH"&&amount>0&&!form.financialAccountId) || !form.customerId || amount + tds <= 0 || amount < 0 || tds < 0 || Math.abs(allocatedTds - tds) > 0.001 || allocated > amount + 0.001}
-                onClick={() => create.mutate()}>
+                disabled={saveDisabled}
+                onClick={() => create.mutate(false)}>
                 {create.isPending ? "Saving…" : "Record payment"}
               </button>
+              <button disabled={saveDisabled} onClick={()=>create.mutate(true)}>Record & add next</button>
             </div>
           </div>
         </div>
