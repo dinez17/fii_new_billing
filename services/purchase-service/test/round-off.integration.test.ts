@@ -45,10 +45,10 @@ suite("purchase round-off accounting",()=>{
   await prisma.$transaction(tx=>syncSourceJournal(tx,tenantId,"PURCHASE",bill.id,actorId),{timeout:30000});
  });
 
- it("creates missing products with PRD codes once and receives their stock atomically",async()=>{
+ it("creates missing products with numeric SKUs once and receives their stock atomically",async()=>{
   const base={supplierId,invoiceDate:"2026-11-01",items:[{newProduct:{name:"Auto Cable",unit:"NOS",isService:false},quantity:2,unitPrice:32,gstRate:0}]};
   const first=await createPurchaseInvoice(tenantId,actorId,purchaseInvoiceBody.parse({...base,billNumber:"AUTO-1"}));
-  const product=await prisma.product.findUniqueOrThrow({where:{id:first.items[0].productId}});expect(product.sku).toMatch(/^PRD-\d{5}$/);expect(Number(product.stockQty)).toBe(2);
+  const product=await prisma.product.findUniqueOrThrow({where:{id:first.items[0].productId}});expect(product.sku).toMatch(/^\d{6}$/);expect(Number(product.stockQty)).toBe(2);
   const second=await createPurchaseInvoice(tenantId,actorId,purchaseInvoiceBody.parse({...base,billNumber:"AUTO-2",items:[{...base.items[0],quantity:1,newProduct:{...base.items[0].newProduct,name:"auto cable"}}]}));expect(second.items[0].productId).toBe(product.id);
   expect(Number((await prisma.product.findUniqueOrThrow({where:{id:product.id}})).stockQty)).toBe(3);
   await expect(createPurchaseInvoice(tenantId,actorId,purchaseInvoiceBody.parse({...base,billNumber:"AUTO-1",items:[{...base.items[0],newProduct:{...base.items[0].newProduct,name:"Must roll back"}}]}))).rejects.toThrow(/already exists/);

@@ -4,7 +4,7 @@ import { api, errMessage } from "../lib/api";
 import { downloadCsv, parseCsv } from "../lib/csv";
 
 const configs = {
-  products: { key: "sku", required: ["sku", "name"], columns: ["sku", "name", "unit", "purchasePrice", "salePrice", "gstRate", "hsnSac", "openingStock", "reorderLevel", "isService"], example: ["ROUTER-01", "WiFi Router", "NOS", "1000", "1500", "18", "851762", "10", "2", "false"] },
+  products: { key: "name", required: ["name"], columns: ["sku", "name", "unit", "purchasePrice", "salePrice", "gstRate", "hsnSac", "openingStock", "reorderLevel", "isService"], example: ["", "WiFi Router", "NOS", "1000", "1500", "18", "851762", "10", "2", "false"] },
   customers: { key: "phone", required: ["name", "phone"], columns: ["name", "phone", "email", "gstTreatment", "gstin", "billingAddress", "serviceAddress", "city", "stateCode", "pincode", "openingBalance", "notes"], example: ["Sample Customer", "9000000001", "customer@example.com", "B2C", "", "10 Main Road", "", "Chennai", "33", "600001", "0", ""] },
   plans: { key: "code", required: ["code", "name", "price"], columns: ["code", "name", "price", "gstRate", "hsnSac", "billingCycleMonths", "planType", "description"], example: ["FIB100", "Fiber 100 Mbps", "599", "18", "998422", "1", "PREPAID", "Monthly subscription"] },
 } as const;
@@ -74,6 +74,7 @@ export function BulkImport({ kind }: { kind: Kind }) {
       <h3>Bulk import {kind}</h3>
       <p>Download the template, fill it in, and save as CSV. Up to 1,000 rows / 2 MB. Keep phone numbers, state codes and pincodes as text in your spreadsheet.</p>
       <p>Required: {config.required.join(", ")}. Existing {config.key} values are reported as duplicates. Import creates new records only.</p>
+      {kind === "products" && <p>SKU codes are generated automatically as six digits per tenant. Leave the SKU column blank.</p>}
       <button type="button" disabled={busy} onClick={() => downloadCsv(`${kind}-template.csv`, [[...config.columns], [...config.example]])}>Download template</button>
       <label>Choose CSV file<input type="file" accept=".csv,text/csv" disabled={busy} onChange={(e) => void load(e.target.files?.[0])} /></label>
       {error && <div className="error" role="alert">{error}</div>}

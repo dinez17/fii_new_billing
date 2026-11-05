@@ -18,7 +18,7 @@ const server = createServer(async (req,res) => {
 await new Promise(r => server.listen(0,"127.0.0.1",r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {}) });
-const permissions = ["product:create","purchase_invoice:create","purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","credit_note:create","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","subscriber:create","backup:read","backup:update"];
+const permissions = ["product:read","product:update","product:create","purchase_invoice:create","purchase_order:read","purchase_invoice:read","purchase_return:read","credit_note:read","credit_note:create","debit_note:read","report:read","settings:read","settings:update","financial_year:read","financial_year:update","day_book:create","day_book:update","billing_run:read","billing_run:create","payment:read","payment:update","payment:create","receipt:read","invoice:read","invoice:create","invoice:update","customer:read","subscriber:read","subscriber:update","subscriber:create","backup:read","backup:update"];
 const user = { id: "test-user", name: "Test Admin", email: "admin@example.test", userType: "STAFF" };
 const cash = "11111111-1111-4111-8111-111111111111", capital = "22222222-2222-4222-8222-222222222222";
 const accountRows = [{ id: cash, code: "CASH", name: "Verified cash", type: "ASSET", isMoneyAccount: true }, { id: capital, code: "CAPITAL", name: "Capital", type: "EQUITY", isMoneyAccount: false }];
@@ -30,7 +30,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block" });
     await context.addInitScript(({user,permissions}) => sessionStorage.setItem("fii.auth",JSON.stringify({user,permissions,accessToken:"mock-only"})),{user,permissions});
     const documentRequests=[];
-    let prospectBody,purchaseCreateBody;const paymentBodies=[];
+    let prospectBody,purchaseCreateBody,productCreateBody;const paymentBodies=[];
     let reverseBody, journalBody, conversionBody, statementBody, whatsappBody, whatsappSettingsBody, receiptEmailBody, receiptWhatsappBody, customerSort;
     await context.route("**/api/**",async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1","");
@@ -74,6 +74,7 @@ try {
       if(path==="/purchase-invoices/extract")data={supplierId:"supplier",supplierName:"Sample supplier",billNumber:"UPLOAD-001",invoiceDate:"2026-11-01",dueDate:"2026-11-10",roundOff:0,expectedTotal:118,sourceText:"Supplier invoice fixture",warnings:["Review all extracted values against the original before saving."],duplicate:null,items:[{productId:"product",description:"Service",quantity:1,unitPrice:100,discount:0,gstRate:18}]};
       if(path==="/purchase-invoices/extract"&&request.postDataJSON().fileName==="goods.png")data={supplierId:"supplier",supplierName:"Sample supplier",pricesIncludeGst:true,billNumber:"PHOTO-001",invoiceDate:"2026-10-02",dueDate:"",roundOff:0,expectedTotal:75.52,requiresTotalMatch:true,sourceText:"Goods fixture",warnings:["Verify GST"],duplicate:null,items:[{productId:"",description:"Auto cable",unit:"NOS",quantity:2,unitPrice:37.76,discount:0,gstRate:-1,sourceLineTotal:75.52}]};
       if(path==="/suppliers/supplier")data={id:"supplier",name:"Sample supplier",code:"SUP1"};
+      if(path==="/products"&&request.method()==="POST"){productCreateBody=request.postDataJSON();data={id:"numeric-product",sku:"000001",...productCreateBody};}
       if(path==="/products/product")data={id:"product",name:"Service",sku:"S1",purchasePrice:"100",gstRate:"18",isService:true};
       if(path==="/purchase-invoices"&&request.method()==="POST"){purchaseCreateBody=request.postDataJSON();data={id:"new-purchase"};}
       await route.fulfill({json:data});
@@ -92,6 +93,11 @@ try {
     await page.getByRole("button",{name:"Create document"}).click();
     await page.waitForURL("**/quotations");
     assert.equal(prospectBody.prospect.name,"Prospect Limited");assert(!prospectBody.customerId);checks++;
+    await page.goto(`${base}/products`);await page.getByRole("button",{name:"+ New Product",exact:true}).click();
+    assert(await page.getByPlaceholder("Generated on save — 000001",{exact:true}).getAttribute("readonly")!==null);
+    await page.locator(".modal input").nth(1).fill("Numeric product");
+    await page.locator(".modal").getByRole("button",{name:"Save",exact:true}).click();await page.locator(".modal").waitFor({state:"detached"});
+    assert.equal(productCreateBody.name,"Numeric product");assert.equal(productCreateBody.sku,undefined);checks++;
     await page.goto(`${base}/invoices`);
     assert.equal(await page.getByRole("button",{name:"Write off",exact:true}).count(),0);
     assert.equal(await page.locator(".page-heading-actions").getByRole("button",{name:"+ New Invoice",exact:true}).count(),1);

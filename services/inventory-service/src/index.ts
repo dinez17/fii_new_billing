@@ -4,7 +4,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z, type ZodTypeAny } from "zod";
 import { AppError, badRequest, conflict, createLogger, notFound, httpMetrics, mountOps, bulkImportBody, importRows } from "@fii/common";
 import { authenticate, authorize } from "@fii/auth";
-import { Prisma, applyStock, prisma, StockError } from "@fii/database";
+import { Prisma, allocateProductSku, applyStock, prisma, StockError } from "@fii/database";
 import { TOPICS, makeEnvelope, startOutboxRelay } from "@fii/kafka";
 
 const log = createLogger("inventory-service");
@@ -20,7 +20,7 @@ function parse<T extends ZodTypeAny>(schema: T, data: unknown): z.infer<T> {
 }
 
 const productBody = z.object({
-  sku: z.string().min(1).max(40),
+  sku: z.string().max(40).optional(),
   name: z.string().min(2).max(150),
   description: z.string().max(500).optional(),
   hsnSac: z.string().max(10).optional(),
@@ -81,7 +81,7 @@ async function createProduct(tenantId: string, actorId: string, b: z.infer<typeo
       const created = await tx.product.create({
         data: {
           tenantId,
-          sku: b.sku.toUpperCase(),
+          sku: await allocateProductSku(tx,tenantId),
           name: b.name,
           description: b.description,
           hsnSac: b.hsnSac,
@@ -119,9 +119,7 @@ app.post("/api/v1/products/import", authenticate, authorize("product:create"), h
   const input = parse(bulkImportBody, req.body);
   const tenantId = req.auth!.tenantId;
   res.json(await importRows({ ...input, schema: productBody,
-    validate: async (row) => {
-      if (await prisma.product.findFirst({ where: { tenantId, sku: row.sku.toUpperCase() } })) throw conflict("Product SKU already exists");
-    },
+    validate: async row=>{if(await prisma.product.findFirst({where:{tenantId,name:{equals:row.name,mode:"insensitive"}}}))throw conflict("Product name already exists; edit the existing product");},
     create: (row) => createProduct(tenantId, req.auth!.sub, row),
   }));
 }));
@@ -140,6 +138,7 @@ app.put("/api/v1/products/:id", authenticate, authorize("product:update"), h(asy
   const b = parse(productBody.partial(), req.body);
   const product = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId } });
   if (!product) throw notFound("Product");
+  if(b.sku!==undefined&&b.sku!==product.sku)throw badRequest("Product SKU is generated automatically and cannot be edited");
   res.json(await prisma.product.update({
     where: { id: product.id },
     data: {

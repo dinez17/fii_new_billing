@@ -24,3 +24,5 @@ export * from "./manual-journal-adjustments.js";
 export * from "./document-order.js";
 export * from "./whatsapp-queue.js";
 export * from "./business-document.js";
+
+export {allocateProductSku,convertProductSkus} from "./product-skus.js";

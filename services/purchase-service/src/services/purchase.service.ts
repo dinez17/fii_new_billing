@@ -1,5 +1,5 @@
 import {sourceDocumentBody,decodePurchaseDocument} from "./purchase-document.js";
-import { numberedDocumentIds, inDocumentOrder, Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
+import { allocateProductSku, numberedDocumentIds, inDocumentOrder, Prisma, moneyAccount, allocateNumber, applyStock, prisma, rankParties, type PartyListQuery } from "@fii/database";
 import { badRequest, encryptSecret, computePurchaseGst, isValidGstin, notFound, partyListFilters, transactionPeriodFilters } from "@fii/common";
 import { TOPICS, makeEnvelope, writeOutbox } from "@fii/kafka";
 import { z } from "zod";
@@ -195,7 +195,6 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
       if(po && input.items.some(i=>i.newProduct))throw badRequest("A received purchase order must use its existing products");
       const existing=await tx.product.findMany({where:{tenantId}});
       const normalized=(s:string)=>s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
-      let nextSku=Math.max(1,...existing.filter(p=>/^PRD-\d+$/.test(p.sku)).map(p=>Number(p.sku.slice(4))+1));
       const resolvedItems=[];
       for(const item of input.items){
         let product=item.productId?existing.find(p=>p.id===item.productId):undefined;
@@ -204,7 +203,7 @@ export async function createPurchaseInvoice(tenantId: string, actorId: string, i
           product=existing.find(p=>normalized(p.name)===normalized(item.newProduct!.name));
           if(product&&!product.isActive)throw badRequest(`Product "${product.name}" is inactive. Activate or select another product.`);
           if(!product){
-            product=await tx.product.create({data:{tenantId,sku:`PRD-${String(nextSku++).padStart(5,"0")}`,name:item.newProduct.name,unit:item.newProduct.unit,isService:item.newProduct.isService,purchasePrice:input.pricesIncludeGst?new Prisma.Decimal(item.unitPrice).div(new Prisma.Decimal(1).add(new Prisma.Decimal(item.gstRate).div(100))).toDecimalPlaces(2):item.unitPrice,gstRate:item.gstRate,hsnSac:item.hsnSac}});
+            product=await tx.product.create({data:{tenantId,sku:await allocateProductSku(tx,tenantId),name:item.newProduct.name,unit:item.newProduct.unit,isService:item.newProduct.isService,purchasePrice:input.pricesIncludeGst?new Prisma.Decimal(item.unitPrice).div(new Prisma.Decimal(1).add(new Prisma.Decimal(item.gstRate).div(100))).toDecimalPlaces(2):item.unitPrice,gstRate:item.gstRate,hsnSac:item.hsnSac}});
             existing.push(product);
             await tx.auditLog.create({data:{tenantId,userId:actorId,action:"PRODUCT_CREATED_FROM_PURCHASE",entity:"Product",entityId:product.id,after:{name:product.name,sku:product.sku,supplierBill:input.billNumber}}});
           }

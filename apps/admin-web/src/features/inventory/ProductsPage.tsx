@@ -54,7 +54,7 @@ export function ProductsPage() {
   const save = useMutation({
     mutationFn: async (f: FormState) => {
       const body = {
-        sku: f.sku, name: f.name, hsnSac: f.hsnSac || undefined, unit: f.unit,
+        name: f.name, hsnSac: f.hsnSac || undefined, unit: f.unit,
         purchasePrice: Number(f.purchasePrice || 0), salePrice: Number(f.salePrice || 0),
         gstRate: Number(f.gstRate), reorderLevel: Number(f.reorderLevel || 0),
         isService: f.isService,
@@ -159,8 +159,8 @@ export function ProductsPage() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{form.id ? "Edit product" : "New product"}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
-              <div><label>SKU *</label>
-                <input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} /></div>
+              <div><label>SKU (automatic)</label>
+                <input value={form.sku} readOnly placeholder="Generated on save — 000001" /></div>
               <div><label>Name *</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             </div>
@@ -199,7 +199,7 @@ export function ProductsPage() {
             {error && <div className="error">{error}</div>}
             <div className="actions">
               <button onClick={() => setForm(null)}>Cancel</button>
-              <button className="primary" disabled={save.isPending || !form.sku || !form.name} onClick={() => save.mutate(form)}>
+              <button className="primary" disabled={save.isPending || !form.name} onClick={() => save.mutate(form)}>
                 {save.isPending ? "Saving…" : "Save"}
               </button>
             </div>
