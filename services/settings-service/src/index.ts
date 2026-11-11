@@ -75,7 +75,7 @@ app.get("/api/v1/settings/license", authenticate, authorize("settings:read"), h(
 app.get("/api/v1/settings/branding", authenticate, h(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(await prisma.tenant.findUniqueOrThrow({
-    where: { id: req.auth!.tenantId }, select: { name: true, logoUrl: true },
+    where: { id: req.auth!.tenantId }, select: { name: true, logoUrl: true, gstin: true },
   }));
 }));
 

@@ -359,7 +359,7 @@ function CompanyTab() {
       for (const [k, v] of Object.entries(form)) body[k] = v || undefined;
       await api.put("/settings/company", body);
     },
-    onSuccess: () => { setError(""); setSaved(true); setTimeout(() => setSaved(false), 2500); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["company"] }); setError(""); setSaved(true); setTimeout(() => setSaved(false), 2500); },
     onError: (err) => setError(errMessage(err)),
   });
 

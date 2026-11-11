@@ -3,12 +3,15 @@ import { ListTable } from "../../components/ListPagination";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMessage } from "../../lib/api";
+import { companyBrandingQuery } from "../../lib/company-branding";
 import { useAuth } from "../../stores/auth";
 
 const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 type ReportPeriod = { year: string; month: string; ready: boolean };
 
 export function GstPage() {
+  const userId = useAuth((state) => state.user?.id);
+  const { data: company } = useQuery(companyBrandingQuery(userId));
   const [tab, setTab] = useState<"gstr1" | "gstr3b" | "files">("gstr1");
   const [{ year, month }, setPeriod] = useState(() => {
     const today = new Date();
@@ -19,7 +22,10 @@ export function GstPage() {
   const period = { year, month, ready };
   return (
     <>
-      <h2 className="page-title">GST Reports</h2>
+      <div className="page-heading" style={{ justifyContent: "flex-start" }}>
+        <h2 className="page-title">GST Reports</h2>
+        {company?.gstin && <span className="badge">GSTIN {company.gstin}</span>}
+      </div>
       <div className="toolbar">
         <button className={tab === "gstr1" ? "primary" : ""} onClick={() => setTab("gstr1")}>GSTR-1 (outward)</button>
         <button className={tab === "gstr3b" ? "primary" : ""} onClick={() => setTab("gstr3b")}>GSTR-3B (summary)</button>

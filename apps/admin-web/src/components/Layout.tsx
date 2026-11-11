@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import { api } from "../lib/api";
+import { companyBrandingQuery } from "../lib/company-branding";
 import { isPlatformConsole } from "../lib/console";
 
 interface NavItem { path: string; label: string; permission?: string }
@@ -131,11 +132,7 @@ export function Layout() {
   const sidebar = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
-  const branding = useQuery({
-    queryKey: ["company", "sidebar-branding", user?.id],
-    queryFn: async () => (await api.get("/settings/branding")).data as { name: string; logoUrl: string | null },
-    enabled: !isPlatformConsole && !!user,
-  });
+  const branding = useQuery(companyBrandingQuery(isPlatformConsole ? undefined : user?.id));
   const tenantLogo = branding.data?.logoUrl;
   const logo = !isPlatformConsole && tenantLogo && tenantLogo !== failedLogo ? tenantLogo : APP_ICON;
   const closeMobile = () => { setMobileOpen(false); menuButton.current?.focus(); };
