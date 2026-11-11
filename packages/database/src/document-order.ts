@@ -15,8 +15,10 @@ function documentQuerySql(kind:DocumentKind,q:Filters,countOnly=false){
  if(q.fyCode)conditions.push(Prisma.sql`d."fyCode"=${q.fyCode}`);
  if(q.customerId)conditions.push(Prisma.sql`d."customerId"=${q.customerId}`);
  if(q.supplierId)conditions.push(Prisma.sql`d."supplierId"=${q.supplierId}`);
- if(q.from)conditions.push(Prisma.sql`${field(c.date)}>=${q.from}`);
- if(q.to)conditions.push(Prisma.sql`${field(c.date)}<=${q.to}`);
+ // Document dates are stored as UTC timestamps without a time zone.
+ // Convert Prisma's timestamptz parameters before comparing to those columns.
+ if(q.from)conditions.push(Prisma.sql`${field(c.date)}>=(${q.from}::timestamptz AT TIME ZONE 'UTC')`);
+ if(q.to)conditions.push(Prisma.sql`${field(c.date)}<=(${q.to}::timestamptz AT TIME ZONE 'UTC')`);
  if(q.statuses?.length)conditions.push(Prisma.sql`d.status::text IN (${Prisma.join(q.statuses)})`);
  if(q.excludeStatuses?.length)conditions.push(Prisma.sql`d.status::text NOT IN (${Prisma.join(q.excludeStatuses)})`);
  if(q.chargeGst!==undefined)conditions.push(Prisma.sql`d."chargeGst"=${q.chargeGst}`);
