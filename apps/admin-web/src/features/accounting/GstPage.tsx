@@ -1,4 +1,3 @@
-import { DateInput } from "../../components/DateInput";
 import { IconButton } from "../../components/IconButton";
 import { ListTable } from "../../components/ListPagination";
 import { useState } from "react";
@@ -7,7 +6,25 @@ import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
 
 const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const firstOfMonth = () => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10); };
+function useReportPeriod() {
+  const [year, setYear] = useState("");
+  const [month, setMonth] = useState("");
+  const ready = month !== "" && /^\d{4}$/.test(year) && Number(year) >= 2020 && Number(year) <= 2100;
+  return { year, setYear, month, setMonth, ready };
+}
+
+function ReportPeriodFields({ year, setYear, month, setMonth }: ReturnType<typeof useReportPeriod>) {
+  return (
+    <>
+      <select aria-label="Report month" style={{ width: 150 }} value={month} onChange={(e) => setMonth(e.target.value)}>
+        <option value="">Select month</option>
+        {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString("en", { month: "long" })}</option>)}
+      </select>
+      <input aria-label="Report year" placeholder="Year" type="number" min={2020} max={2100} step={1}
+        style={{ width: 105 }} value={year} onChange={(e) => setYear(e.target.value)} />
+    </>
+  );
+}
 
 export function GstPage() {
   const [tab, setTab] = useState<"gstr1" | "gstr3b" | "files">("gstr1");
@@ -26,11 +43,10 @@ export function GstPage() {
 
 /** Portal/offline-tool-format downloads: section CSVs + the Excel workbook. */
 function Gstr1Files() {
-  const now = new Date();
-  const [year, setYear] = useState(String(now.getFullYear()));
-  const [month, setMonth] = useState(String(now.getMonth() + 1));
+  const period = useReportPeriod();
+  const { year, month, ready } = period;
   const [busy, setBusy] = useState<string | null>(null);
-  const counts = useQuery({ queryKey: ["gstr1-file-counts", year, month], queryFn: async () => (await api.get("/gst/gstr1-file-counts", { params: { year, month } })).data as Record<string, { rows: number; documents: number | null }> });
+  const counts = useQuery({ queryKey: ["gstr1-file-counts", year, month], enabled: ready, queryFn: async () => (await api.get("/gst/gstr1-file-counts", { params: { year, month } })).data as Record<string, { rows: number; documents: number | null }> });
 
   const SECTIONS: { key: string; file: string; label: string; empty?: boolean }[] = [
     { key: "b2b", file: "b2b,sez,de.csv", label: "B2B, SEZ, DE" },
@@ -47,6 +63,7 @@ function Gstr1Files() {
   ];
 
   async function download(url: string, filename: string, id: string) {
+    if (!ready) return;
     setBusy(id);
     try {
       const res = await api.get(url, { params: { year, month }, responseType: "blob" });
@@ -65,14 +82,11 @@ function Gstr1Files() {
   return (
     <>
       <div className="toolbar">
-        <select style={{ width: 140 }} value={month} onChange={(e) => setMonth(e.target.value)}>
-          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString("en", { month: "long" })}</option>)}
-        </select>
-        <input type="number" style={{ width: 100 }} value={year} onChange={(e) => setYear(e.target.value)} />
+        <ReportPeriodFields {...period} />
         <div className="spacer" />
         <button
           className="primary"
-          disabled={busy !== null}
+          disabled={!ready || busy !== null}
           onClick={() => download("/gst/gstr1-workbook", `GSTR1_${year}-${String(month).padStart(2, "0")}.xlsx`, "wb")}
         >
           {busy === "wb" ? "Preparing…" : "Download Excel Workbook"}
@@ -94,7 +108,7 @@ function Gstr1Files() {
               <td>{counts.data?.[s.key]?.rows ?? (counts.isFetching ? "…" : "—")}</td>
               <td>{counts.data?.[s.key]?.documents ?? "—"}</td>
               <td>
-                <IconButton className="small" disabled={busy !== null} onClick={() => download(`/gst/gstr1-files/${s.key}`, s.file, s.key)} icon="download" label={busy === s.key ? "…" : "Download CSV"}>
+                <IconButton className="small" disabled={!ready || busy !== null} onClick={() => download(`/gst/gstr1-files/${s.key}`, s.file, s.key)} icon="download" label={busy === s.key ? "…" : "Download CSV"}>
                   {busy === s.key ? "…" : "Download CSV"}
                 </IconButton>
               </td>
@@ -110,10 +124,13 @@ function Gstr1Files() {
 function Gstr1() {
   const qc = useQueryClient();
   const canExport = useAuth((s) => s.hasPerm("report:export"));
-  const [from, setFrom] = useState(firstOfMonth());
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const period = useReportPeriod();
+  const { year, month, ready } = period;
+  const from = ready ? year + "-" + month.padStart(2, "0") + "-01" : "";
+  const to = ready ? new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10) : "";
   const q = useQuery({
     queryKey: ["gstr1", from, to],
+    enabled: ready,
     queryFn: async () => (await api.get("/gst/gstr1", { params: { from, to } })).data as any,
   });
   const exp = useMutation({
@@ -125,13 +142,12 @@ function Gstr1() {
   return (
     <>
       <div className="toolbar">
-        <DateInput value={from} onChange={(e) => setFrom(e.target.value)} />
-        <span style={{ color: "var(--muted)" }}>to</span>
-        <DateInput value={to} onChange={(e) => setTo(e.target.value)} />
+        <ReportPeriodFields {...period} />
         <div className="spacer" />
-        {canExport && <button className="small" disabled={exp.isPending} onClick={() => exp.mutate()}>Export CSV</button>}
+        {canExport && <button className="small" disabled={!ready || exp.isPending} onClick={() => exp.mutate()}>Export CSV</button>}
       </div>
-      {d && (
+      {q.isError && <div className="error">{errMessage(q.error)}</div>}
+      {ready && d && (
         <>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12, color: "var(--muted)" }}>
             <span><strong style={{ color: "var(--text)" }}>{inr(d.summary.taxableValue)}</strong> taxable</span>
@@ -176,11 +192,11 @@ function Gstr1() {
 }
 
 function Gstr3b() {
-  const now = new Date();
-  const [year, setYear] = useState(String(now.getFullYear()));
-  const [month, setMonth] = useState(String(now.getMonth() + 1));
+  const period = useReportPeriod();
+  const { year, month, ready } = period;
   const q = useQuery({
     queryKey: ["gstr3b", year, month],
+    enabled: ready,
     queryFn: async () => (await api.get("/gst/gstr3b", { params: { year, month } })).data as any,
   });
   const d = q.data;
@@ -190,12 +206,10 @@ function Gstr3b() {
   return (
     <>
       <div className="toolbar">
-        <select style={{ width: 140 }} value={month} onChange={(e) => setMonth(e.target.value)}>
-          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString("en", { month: "long" })}</option>)}
-        </select>
-        <input type="number" style={{ width: 100 }} value={year} onChange={(e) => setYear(e.target.value)} />
+        <ReportPeriodFields {...period} />
       </div>
-      {d && (
+      {q.isError && <div className="error">{errMessage(q.error)}</div>}
+      {ready && d && (
         <ListTable>
           <thead><tr><th>Head</th><th style={{ textAlign: "right" }}>CGST</th><th style={{ textAlign: "right" }}>SGST</th><th style={{ textAlign: "right" }}>IGST</th></tr></thead>
           <tbody>
