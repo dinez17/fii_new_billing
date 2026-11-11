@@ -6,28 +6,17 @@ import { api, errMessage } from "../../lib/api";
 import { useAuth } from "../../stores/auth";
 
 const inr = (v: unknown) => `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function useReportPeriod() {
-  const [year, setYear] = useState("");
-  const [month, setMonth] = useState("");
-  const ready = month !== "" && /^\d{4}$/.test(year) && Number(year) >= 2020 && Number(year) <= 2100;
-  return { year, setYear, month, setMonth, ready };
-}
-
-function ReportPeriodFields({ year, setYear, month, setMonth }: ReturnType<typeof useReportPeriod>) {
-  return (
-    <>
-      <select aria-label="Report month" style={{ width: 150 }} value={month} onChange={(e) => setMonth(e.target.value)}>
-        <option value="">Select month</option>
-        {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString("en", { month: "long" })}</option>)}
-      </select>
-      <input aria-label="Report year" placeholder="Year" type="number" min={2020} max={2100} step={1}
-        style={{ width: 105 }} value={year} onChange={(e) => setYear(e.target.value)} />
-    </>
-  );
-}
+type ReportPeriod = { year: string; month: string; ready: boolean };
 
 export function GstPage() {
   const [tab, setTab] = useState<"gstr1" | "gstr3b" | "files">("gstr1");
+  const [{ year, month }, setPeriod] = useState(() => {
+    const today = new Date();
+    const previousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    return { year: String(previousMonth.getFullYear()), month: String(previousMonth.getMonth() + 1) };
+  });
+  const ready = month !== "" && /^\d{4}$/.test(year) && Number(year) >= 2020 && Number(year) <= 2100;
+  const period = { year, month, ready };
   return (
     <>
       <h2 className="page-title">GST Reports</h2>
@@ -36,14 +25,21 @@ export function GstPage() {
         <button className={tab === "gstr3b" ? "primary" : ""} onClick={() => setTab("gstr3b")}>GSTR-3B (summary)</button>
         <button className={tab === "files" ? "primary" : ""} onClick={() => setTab("files")}>GSTR-1 Files (Offline Tool)</button>
       </div>
-      {tab === "gstr1" ? <Gstr1 /> : tab === "gstr3b" ? <Gstr3b /> : <Gstr1Files />}
+      <div className="toolbar">
+        <select aria-label="Report month" style={{ width: 150 }} value={month} onChange={(e) => setPeriod({ year, month: e.target.value })}>
+          <option value="">Select month</option>
+          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{new Date(2000, i).toLocaleString("en", { month: "long" })}</option>)}
+        </select>
+        <input aria-label="Report year" placeholder="Year" type="number" min={2020} max={2100} step={1}
+          style={{ width: 105 }} value={year} onChange={(e) => setPeriod({ year: e.target.value, month })} />
+      </div>
+      {tab === "gstr1" ? <Gstr1 period={period} /> : tab === "gstr3b" ? <Gstr3b period={period} /> : <Gstr1Files period={period} />}
     </>
   );
 }
 
 /** Portal/offline-tool-format downloads: section CSVs + the Excel workbook. */
-function Gstr1Files() {
-  const period = useReportPeriod();
+function Gstr1Files({ period }: { period: ReportPeriod }) {
   const { year, month, ready } = period;
   const [busy, setBusy] = useState<string | null>(null);
   const counts = useQuery({ queryKey: ["gstr1-file-counts", year, month], enabled: ready, queryFn: async () => (await api.get("/gst/gstr1-file-counts", { params: { year, month } })).data as Record<string, { rows: number; documents: number | null }> });
@@ -82,7 +78,6 @@ function Gstr1Files() {
   return (
     <>
       <div className="toolbar">
-        <ReportPeriodFields {...period} />
         <div className="spacer" />
         <button
           className="primary"
@@ -121,10 +116,9 @@ function Gstr1Files() {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function Gstr1() {
+function Gstr1({ period }: { period: ReportPeriod }) {
   const qc = useQueryClient();
   const canExport = useAuth((s) => s.hasPerm("report:export"));
-  const period = useReportPeriod();
   const { year, month, ready } = period;
   const from = ready ? year + "-" + month.padStart(2, "0") + "-01" : "";
   const to = ready ? new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10) : "";
@@ -141,11 +135,12 @@ function Gstr1() {
   const d = q.data;
   return (
     <>
-      <div className="toolbar">
-        <ReportPeriodFields {...period} />
-        <div className="spacer" />
-        {canExport && <button className="small" disabled={!ready || exp.isPending} onClick={() => exp.mutate()}>Export CSV</button>}
-      </div>
+      {canExport && (
+        <div className="toolbar">
+          <div className="spacer" />
+          <button className="small" disabled={!ready || exp.isPending} onClick={() => exp.mutate()}>Export CSV</button>
+        </div>
+      )}
       {q.isError && <div className="error">{errMessage(q.error)}</div>}
       {ready && d && (
         <>
@@ -191,8 +186,7 @@ function Gstr1() {
   );
 }
 
-function Gstr3b() {
-  const period = useReportPeriod();
+function Gstr3b({ period }: { period: ReportPeriod }) {
   const { year, month, ready } = period;
   const q = useQuery({
     queryKey: ["gstr3b", year, month],
@@ -205,9 +199,6 @@ function Gstr3b() {
   );
   return (
     <>
-      <div className="toolbar">
-        <ReportPeriodFields {...period} />
-      </div>
       {q.isError && <div className="error">{errMessage(q.error)}</div>}
       {ready && d && (
         <ListTable>
