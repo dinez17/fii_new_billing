@@ -108,7 +108,7 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
         invoiceNumber: true, invoiceDate: true, placeOfSupply: true, isInterState: true,
         gstTreatment: true, status: true, grandTotal: true,
         customer: { select: { name: true, gstin: true } },
-        items: { select: { productId: true, description: true, hsnSac: true, quantity: true, gstRate: true, taxableValue: true, cgst: true, sgst: true, igst: true, lineTotal: true } },
+        items: { select: { productId: true, hsnSac: true, quantity: true, gstRate: true, taxableValue: true, cgst: true, sgst: true, igst: true, lineTotal: true } },
       },
       orderBy: { invoiceNumber: "asc" },
     }),
@@ -192,8 +192,9 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
         const unit = /^99\d{2,4}$/.test(hsn) ? "OTH-OTHERS" : uqc(prod?.unit);
         const key = `${hsn}|${rate}|${unit}`;
         const rec = map.get(key) ?? { hsn, descriptions: new Map<string, string>(), uqc: unit, qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
-        const description = it.description.replace(/\s+/g, " ").trim()
-          .replace(/\s*[-–—]?\s*\(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[^()]*\)$/, "").trim();
+        const description = prod?.hsnSac?.trim() === hsn && hsn
+          ? prod.name.replace(/\s+/g, " ").trim()
+          : "";
         const label = description.toLowerCase();
         if (description && !rec.descriptions.has(label)) rec.descriptions.set(label, description);
         rec.qty += n(it.quantity); rec.value += n(it.lineTotal); rec.taxable += n(it.taxableValue);
