@@ -179,7 +179,7 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
   for (const dn of debitNotesAll) pushNote(dn, "D");
 
   // ── HSN summaries (B2B vs B2C recipient split, plus combined)
-  interface HsnAgg { hsn: string; desc: string; uqc: string; qty: number; value: number; taxable: number; igst: number; cgst: number; sgst: number; rate: number }
+  interface HsnAgg { hsn: string; descriptions: Map<string, string>; uqc: string; qty: number; value: number; taxable: number; igst: number; cgst: number; sgst: number; rate: number }
   const hsnAgg = (registered: boolean | null) => {
     const map = new Map<string, HsnAgg>();
     for (const inv of invoices) {
@@ -189,8 +189,13 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
         const prod = it.productId ? productById.get(it.productId) : undefined;
         const hsn = (it.hsnSac ?? prod?.hsnSac ?? "").trim();
         const rate = n(it.gstRate);
-        const key = `${hsn}|${rate}|${uqc(prod?.unit)}`;
-        const rec = map.get(key) ?? { hsn, desc: (prod?.name ?? it.description).slice(0, 30), uqc: uqc(prod?.unit), qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
+        const unit = /^99\d{2,4}$/.test(hsn) ? "OTH-OTHERS" : uqc(prod?.unit);
+        const key = `${hsn}|${rate}|${unit}`;
+        const rec = map.get(key) ?? { hsn, descriptions: new Map<string, string>(), uqc: unit, qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
+        const description = it.description.replace(/\s+/g, " ").trim()
+          .replace(/\s*[-–—]?\s*\(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[^()]*\)$/, "").trim();
+        const label = description.toLowerCase();
+        if (description && !rec.descriptions.has(label)) rec.descriptions.set(label, description);
         rec.qty += n(it.quantity); rec.value += n(it.lineTotal); rec.taxable += n(it.taxableValue);
         rec.igst += n(it.igst); rec.cgst += n(it.cgst); rec.sgst += n(it.sgst);
         map.set(key, rec);
@@ -200,7 +205,7 @@ async function collect(tenantId: string, year: number, month: number): Promise<G
   };
   // CSV order: ..., Taxable, IGST, CGST, SGST, Cess, Rate  ·  Workbook order: ..., Rate, Taxable, IGST, CGST, SGST, Cess
   const hsnCsvRows = (aggs: HsnAgg[]): Cell[][] =>
-    aggs.map((a) => [a.hsn, a.desc, a.uqc, r2(a.qty), money(a.value), money(a.taxable), money(a.igst), money(a.cgst), money(a.sgst), "0.00", a.rate]);
+    aggs.map((a) => [a.hsn, [...a.descriptions.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, description]) => description).join(" / "), a.uqc, r2(a.qty), money(a.value), money(a.taxable), money(a.igst), money(a.cgst), money(a.sgst), "0.00", a.rate]);
   const hsnB2bAgg = hsnAgg(true), hsnB2cAgg = hsnAgg(false), hsnAllAgg = hsnAgg(null);
 
   // ── docs — document series issued during the period
@@ -336,6 +341,11 @@ gstr1FilesRouter.get("/gstr1-workbook", authorize("gst_report:read"), h(async (r
       });
     });
     def.headers.forEach((_, i) => { ws.getColumn(i + 1).width = 22; });
+    if (def.name === "hsn(b2b)" || def.name === "hsn(b2c)") {
+      const descriptionColumn = ws.getColumn(2);
+      descriptionColumn.width = 55;
+      descriptionColumn.alignment = { wrapText: true, vertical: "top" };
+    }
   }
 
   const fname = `GSTR1_${q.year}-${String(q.month).padStart(2, "0")}.xlsx`;
