@@ -4,7 +4,7 @@
  * Jobs (IST assumed via TZ env or host clock):
  *   0 1 1 * *     prepaid billing for the new month (1st, 01:00)
  *   0 23 28-31 * * postpaid billing IF tomorrow is the 1st (month end, 23:00)
- *   0 9 * * *     payment due reminders (T-3, T-0, T+3)
+ *   0 9 * * *     payment due reminders (T-3, T-0, then every 3 overdue days)
  */
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -51,16 +51,20 @@ async function dueReminders(): Promise<void> {
   const targets = [
     { offsetDays: 3, template: "DUE_REMINDER_UPCOMING" },
     { offsetDays: 0, template: "DUE_REMINDER_TODAY" },
-    { offsetDays: -3, template: "DUE_REMINDER_OVERDUE" },
+    { offsetDays: -3, template: "DUE_REMINDER_OVERDUE", recurring: true },
   ];
   for (const t of targets) {
     const day = new Date(today.getTime() + t.offsetDays * 86_400_000);
     const next = new Date(day.getTime() + 86_400_000);
+    const dayNumber = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000;
     const invoices = await prisma.invoice.findMany({
-      where: { tenantId: { in: tenantIds }, id: { notIn: historicalIds }, status: { in: ["UNPAID", "PARTIAL"] }, dueDate: { gte: day, lt: next } },
+      where: { tenantId: { in: tenantIds }, id: { notIn: historicalIds }, status: { in: ["UNPAID", "PARTIAL"] }, dueDate: t.recurring ? { lt: next } : { gte: day, lt: next } },
       include: { customer: { select: { name: true } } },
     });
+    let queued = 0;
     for (const inv of invoices) {
+      const daysOverdue = dayNumber(today) - dayNumber(inv.dueDate);
+      if (t.recurring && (daysOverdue < 3 || daysOverdue % 3 !== 0)) continue;
       const balance = inv.grandTotal.minus(inv.amountPaid).minus(inv.creditedAmount);
       if (balance.lte(0)) continue;
       await publish(TOPICS.NOTIFICATION_SEND, inv.tenantId, makeEnvelope(inv.tenantId, {
@@ -68,6 +72,8 @@ async function dueReminders(): Promise<void> {
         customerId: inv.customerId,
         invoiceId: inv.id,
         reminderDueDate: inv.dueDate.toISOString(),
+        // Keep the original key for the first reminder so it is never duplicated.
+        ...(t.recurring && daysOverdue > 3 ? { reminderOccurrence: daysOverdue } : {}),
         vars: {
           customerName: inv.customer.name,
           invoiceNumber: inv.invoiceNumber,
@@ -75,8 +81,9 @@ async function dueReminders(): Promise<void> {
           dueDate: inv.dueDate.toLocaleDateString("en-IN"),
         },
       }));
+      queued++;
     }
-    if (invoices.length) log.info({ template: t.template, count: invoices.length }, "reminders queued");
+    if (queued) log.info({ template: t.template, count: queued }, "reminders queued");
   }
 }
 

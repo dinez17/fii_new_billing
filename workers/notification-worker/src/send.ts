@@ -118,6 +118,15 @@ export async function deliverNotification(id: string, suppliedAttachments?: Send
   const row = await prisma.notificationLog.findUniqueOrThrow({ where: { id } });
   try {
     if (row.channel !== "EMAIL") throw new Error(`${row.channel} delivery provider is not configured; no message was delivered`);
+    if (row.refType === "DUE_REMINDER" && row.refId) {
+      const invoice = await prisma.invoice.findFirst({ where: { id: row.refId, tenantId: row.tenantId, status: { in: ["UNPAID", "PARTIAL"] } } });
+      if (!invoice || invoice.grandTotal.minus(invoice.amountPaid).minus(invoice.creditedAmount).lte(0)) {
+        await prisma.notificationLog.update({ where: { id }, data: {
+          status: "FAILED", requiresReview: true, attempts: 5, error: "Reminder stopped because the invoice no longer has a balance due", lockedUntil: null, nextAttemptAt: null,
+        } });
+        return;
+      }
+    }
     let attachments = suppliedAttachments;
     if (row.refType === "INVOICE" && row.refId) {
       const invoice = await prisma.invoice.findFirst({ where: { id: row.refId, tenantId: row.tenantId, status: { notIn: ["CANCELLED", "DRAFT"] } } });

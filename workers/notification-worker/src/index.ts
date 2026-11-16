@@ -33,6 +33,7 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         customerId?: string;
         invoiceId?: string;
         reminderDueDate?: string;
+        reminderOccurrence?: number;
         to?: { email?: string | null; phone?: string | null };
         vars?: Record<string, string>;
       };
@@ -48,9 +49,9 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         if (!invoice || invoice.dueDate.toISOString() !== p.reminderDueDate || invoice.grandTotal.minus(invoice.amountPaid).minus(invoice.creditedAmount).lte(0)) break;
         vars = { ...vars, invoiceNumber: invoice.invoiceNumber, amount: invoice.grandTotal.minus(invoice.amountPaid).minus(invoice.creditedAmount).toFixed(2) };
       }
-      await dispatch({ tenantId, templateCode: p.template, to: to ?? {}, vars, refType: "CUSTOM", refId: p.customerId,
+      await dispatch({ tenantId, templateCode: p.template, to: to ?? {}, vars, refType: p.invoiceId ? "DUE_REMINDER" : "CUSTOM", refId: p.invoiceId ?? p.customerId,
         whatsappCustomerId: p.customerId, whatsappInvoiceId: p.invoiceId,
-        dedupeKey: p.invoiceId ? [p.template,p.invoiceId,p.reminderDueDate].join(":") : event.eventId });
+        dedupeKey: p.invoiceId ? [p.template, p.invoiceId, p.reminderDueDate, p.reminderOccurrence].filter(value => value !== undefined).join(":") : event.eventId });
       break;
     }
     case TOPICS.INVOICE_CREATED: {
