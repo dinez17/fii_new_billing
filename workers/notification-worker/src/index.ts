@@ -31,6 +31,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       const p = event.payload as {
         template: string;
         customerId?: string;
+        invoiceId?: string;
+        reminderDueDate?: string;
         to?: { email?: string | null; phone?: string | null };
         vars?: Record<string, string>;
       };
@@ -41,7 +43,14 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
         to = { email: c.billingEmail, phone: c.phone };
         vars = { customerName: c.name, ...vars };
       }
-      await dispatch({ tenantId, templateCode: p.template, to: to ?? {}, vars, refType: "CUSTOM", refId: p.customerId });
+      if (p.invoiceId) {
+        const invoice = await prisma.invoice.findFirst({ where: { id: p.invoiceId, tenantId, customerId: p.customerId, status: { in: ["UNPAID", "PARTIAL"] } } });
+        if (!invoice || invoice.dueDate.toISOString() !== p.reminderDueDate || invoice.grandTotal.minus(invoice.amountPaid).minus(invoice.creditedAmount).lte(0)) break;
+        vars = { ...vars, invoiceNumber: invoice.invoiceNumber, amount: invoice.grandTotal.minus(invoice.amountPaid).minus(invoice.creditedAmount).toFixed(2) };
+      }
+      await dispatch({ tenantId, templateCode: p.template, to: to ?? {}, vars, refType: "CUSTOM", refId: p.customerId,
+        whatsappCustomerId: p.customerId, whatsappInvoiceId: p.invoiceId,
+        dedupeKey: p.invoiceId ? [p.template,p.invoiceId,p.reminderDueDate].join(":") : event.eventId });
       break;
     }
     case TOPICS.INVOICE_CREATED: {
@@ -103,6 +112,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "PAYMENT_FAILED",
+        whatsappCustomerId: p.customerId,
+        dedupeKey: event.eventId,
         to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, reason: p.reason },
         refType: "PAYMENT",
@@ -116,6 +127,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "COMPLAINT_CREATED",
+        whatsappCustomerId: p.customerId,
+        dedupeKey: event.eventId,
         to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, complaintNumber: p.complaintNumber, subject: p.subject },
         refType: "COMPLAINT",
@@ -147,6 +160,8 @@ async function handle(topic: string, event: EventEnvelope): Promise<void> {
       await dispatch({
         tenantId,
         templateCode: "COMPLAINT_RESOLVED",
+        whatsappCustomerId: p.customerId,
+        dedupeKey: event.eventId,
         to: { email: c.billingEmail, phone: c.phone },
         vars: { customerName: c.name, complaintNumber: p.complaintNumber, subject: p.subject, resolutionNotes: p.resolutionNotes },
         refType: "COMPLAINT",

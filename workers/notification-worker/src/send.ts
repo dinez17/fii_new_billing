@@ -2,7 +2,7 @@ import {deliverWhatsappNotification} from "./whatsapp.js";
 import nodemailer, { type Transporter, type SendMailOptions } from "nodemailer";
 import { buildInvoicePdfBuffer, buildReceiptPdfBuffer, buildBusinessDocumentPdfBuffer, businessDocumentRecipient } from "@fii/pdf";
 import { prisma, BUSINESS_DOCUMENT_KINDS, type BusinessDocumentKind } from "@fii/database";
-import { createLogger, decryptSecret, companyMailCc } from "@fii/common";
+import { createLogger, decryptSecret, companyMailCc, normalizeWhatsappPhone } from "@fii/common";
 
 const log = createLogger("notification-worker");
 
@@ -48,6 +48,9 @@ export interface SendRequest {
   vars: Record<string, string>;
   refType?: string;
   refId?: string;
+  whatsappCustomerId?: string;
+  whatsappInvoiceId?: string;
+  dedupeKey?: string;
   /** EMAIL channel only — PDF attachments (invoice, receipt …) */
   attachments?: { filename: string; content: Buffer }[];
 }
@@ -66,29 +69,38 @@ export async function dispatch(req: SendRequest): Promise<void> {
     return;
   }
 
-  for (const tpl of templates.filter(t=>t.channel!=="WHATSAPP")) {
+  const whatsappCustomer = req.whatsappCustomerId && templates.some(t => t.channel === "WHATSAPP")
+    ? await prisma.customer.findFirst({ where: { tenantId: req.tenantId, id: req.whatsappCustomerId, whatsappInvoiceEnabled: true } })
+    : null;
+  const whatsappPhone = normalizeWhatsappPhone(whatsappCustomer?.whatsappPhone || whatsappCustomer?.phone);
+  for (const tpl of templates) {
     const body = render(tpl.body, req.vars);
     const subject = tpl.subject ? render(tpl.subject, req.vars) : undefined;
 
     const to =
       tpl.channel === "EMAIL" ? req.to.email :
-      req.to.phone; // SMS + WHATSAPP
+      tpl.channel === "WHATSAPP" ? (whatsappPhone ? "+" + whatsappPhone : null) : req.to.phone;
     if (!to) continue;
 
-    const logRow = await prisma.notificationLog.create({
-      data: {
+    if (tpl.channel === "WHATSAPP" && !await prisma.setting.findFirst({
+      where: { tenantId: req.tenantId, group: "WHATSAPP", key: "enabled", value: "true" }, select: { key: true },
+    })) continue;
+    const data = {
         tenantId: req.tenantId,
         channel: tpl.channel,
         to,
         templateCode: req.templateCode,
         subject,
         body,
-        status: "QUEUED",
+        status: "QUEUED" as const,
         nextAttemptAt: new Date(),
-        refType: req.refType,
-        refId: req.refId,
-      },
-    });
+        refType: tpl.channel === "WHATSAPP" ? (req.whatsappInvoiceId ? "WHATSAPP_DUE" : "WHATSAPP_TEXT") : req.refType,
+        refId: tpl.channel === "WHATSAPP" ? (req.whatsappInvoiceId ?? req.whatsappCustomerId) : req.refId,
+    };
+    const dedupeKey = req.dedupeKey ? tpl.channel + ":" + req.dedupeKey : undefined;
+    const logRow = dedupeKey
+      ? await prisma.notificationLog.upsert({ where: { tenantId_dedupeKey: { tenantId: req.tenantId, dedupeKey } }, create: { ...data, dedupeKey }, update: {} })
+      : await prisma.notificationLog.create({ data });
 
     await deliverNotification(logRow.id, req.attachments);
   }

@@ -27,6 +27,10 @@ export function wapiClient(config:WapiConfig,base=config.apiUrl?normalizeWapiUrl
   try{return await response.json();}catch{throw new WapiError("WAPI returned an invalid response"+(body?"; check provider history before retrying":""),!!body);}
  }
  return {
+  async sendText(input:{to:string;message:string}){
+   if(!/^\+[1-9]\d{7,14}$/.test(input.to)||!input.message.trim())throw new WapiError("Invalid WhatsApp recipient or empty message");
+   return statusOf(await request("/api/v1/send/text",{message:input.message,recipients:[input.to],...(config.deviceId?{deviceId:config.deviceId}:{})}));
+  },
   async sendDocument(input:{to:string;pdf:Buffer;fileName:string;caption:string}){
    if(!/^\+[1-9]\d{7,14}$/.test(input.to))throw new WapiError("Invalid WhatsApp destination");
    if(input.pdf.subarray(0,5).toString()!=="%PDF-"||input.pdf.length>15*1024*1024)throw new WapiError("Invoice PDF is invalid or exceeds 15 MB");

@@ -45,6 +45,7 @@ async function dueReminders(): Promise<void> {
   // Historical imports must not trigger an unsolicited reminder campaign.
   // A user may still send an invoice explicitly from the billing screen.
   const historical = await prisma.legacyRecord.findMany({ where: { targetModel: "invoice", status: "IMPORTED", targetId: { not: null } }, select: { targetId: true } });
+  const tenantIds = await activeTenants();
   const historicalIds = historical.map((row) => row.targetId!);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const targets = [
@@ -56,18 +57,21 @@ async function dueReminders(): Promise<void> {
     const day = new Date(today.getTime() + t.offsetDays * 86_400_000);
     const next = new Date(day.getTime() + 86_400_000);
     const invoices = await prisma.invoice.findMany({
-      where: { id: { notIn: historicalIds }, status: { in: ["UNPAID", "PARTIAL"] }, dueDate: { gte: day, lt: next } },
-      include: { customer: { select: { name: true, email: true, phone: true } } },
+      where: { tenantId: { in: tenantIds }, id: { notIn: historicalIds }, status: { in: ["UNPAID", "PARTIAL"] }, dueDate: { gte: day, lt: next } },
+      include: { customer: { select: { name: true } } },
     });
     for (const inv of invoices) {
+      const balance = inv.grandTotal.minus(inv.amountPaid).minus(inv.creditedAmount);
+      if (balance.lte(0)) continue;
       await publish(TOPICS.NOTIFICATION_SEND, inv.tenantId, makeEnvelope(inv.tenantId, {
         template: t.template,
         customerId: inv.customerId,
-        to: { email: inv.customer.email, phone: inv.customer.phone },
+        invoiceId: inv.id,
+        reminderDueDate: inv.dueDate.toISOString(),
         vars: {
           customerName: inv.customer.name,
           invoiceNumber: inv.invoiceNumber,
-          amount: (Number(inv.grandTotal) - Number(inv.amountPaid)).toFixed(2),
+          amount: balance.toFixed(2),
           dueDate: inv.dueDate.toLocaleDateString("en-IN"),
         },
       }));

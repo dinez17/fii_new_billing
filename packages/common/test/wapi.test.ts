@@ -27,6 +27,11 @@ describe("WAPI HTTP contract and uncertain submission safety",()=>{
  it("distinguishes accepted queues from sent messages, then polls the known ID",async()=>{
   const client=wapiClient({apiKey:"queued"},base);expect(await client.sendDocument(input)).toMatchObject({status:"PENDING",messageId:"42"});expect(await client.messageStatus("42")).toMatchObject({status:"SENT"});expect(calls.at(-1).path).toBe("/api/v1/messages/42");
  });
+ it("uses the text endpoint for customer notifications", async () => {
+  const client = wapiClient({apiKey:"one",deviceId:7},base);
+  expect(await client.sendText({to:input.to,message:"Payment reminder"})).toMatchObject({status:"SENT"});
+  expect(calls.at(-1)).toMatchObject({path:"/api/v1/send/text",body:{message:"Payment reminder",recipients:[input.to],deviceId:7}});
+ });
  it("checks account and devices without sending",async()=>{const before=calls.length;expect(await wapiClient({apiKey:"one"},base).connection()).toMatchObject({connected:true,credits:50,devices:[{id:7,isReady:true}]});expect(calls.slice(before).map(c=>c.path)).toEqual(["/api/v1/account","/api/v1/devices"]);});
  it("never reports failed or ambiguous responses as sent",async()=>{
   expect(await wapiClient({apiKey:"failed"},base).sendDocument(input)).toMatchObject({status:"FAILED"});
