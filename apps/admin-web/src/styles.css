@@ -272,10 +272,8 @@ td code { white-space: nowrap; }
 .subscriber-connection-grid {display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr) auto;gap:8px;align-items:center;margin-bottom:8px;}
 @media(max-width:600px){.subscriber-connection-grid{grid-template-columns:minmax(0,1fr);}}
 
-.settings-menu { display:grid; gap:12px; padding:16px; margin-bottom:20px; background:var(--surface, white); border:1px solid var(--border); border-radius:12px; }
-.settings-menu-group { display:grid; grid-template-columns:160px minmax(0,1fr); align-items:start; gap:12px; }
-.settings-menu-group h3 { font-size:14px; margin:8px 0 0; color:var(--muted); }
-.settings-menu-items,.page-export { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-menu { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0; }
+.settings-menu select { width:min(280px, 100%); }
+.page-export { display:flex; flex-wrap:wrap; gap:8px; }
 .page-export { justify-content:flex-end; margin-bottom:12px; }
 .page-export [role="alert"] { flex-basis:100%; text-align:right; color:var(--danger); }
-@media (max-width:640px) { .settings-menu-group { grid-template-columns:1fr; gap:6px; } }

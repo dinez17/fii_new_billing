@@ -40,28 +40,24 @@ export function SettingsPage() {
   return (
     <>
       <h2 className="page-title">Settings</h2>
-      <nav className="settings-menu" aria-label="Settings sections">
-        {SETTINGS_GROUPS.map(({ label, tabs }) => {
-          const visible = tabs.filter((item) => {
-            if (isPlatformConsole && ["whatsapp", "nonGst", "license", "accounts", "legacy"].includes(item)) return false;
-            return (item !== "accounts" || canReadAccounts) && (item !== "legacy" || canReadLegacy);
-          });
-          if (!visible.length) return null;
-          return (
-            <div className="settings-menu-group" key={label}>
-              <h3>{label}</h3>
-              <div className="settings-menu-items">
-                {visible.map((item) => (
-                  <button type="button" key={item} aria-current={tab === item ? "true" : undefined}
-                    className={tab === item ? "primary" : ""} onClick={() => setTab(item)}>
-                    {TAB_LABELS[item]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </nav>
+      <div className="toolbar">
+        <label className="settings-menu">
+          Settings section
+          <select value={tab} onChange={(event) => setTab(event.target.value as Tab)}>
+            {SETTINGS_GROUPS.map(({ label, tabs }) => {
+              const visible = tabs.filter((item) => {
+                if (isPlatformConsole && ["whatsapp", "nonGst", "license", "accounts", "legacy"].includes(item)) return false;
+                return (item !== "accounts" || canReadAccounts) && (item !== "legacy" || canReadLegacy);
+              });
+              return visible.length > 0 && (
+                <optgroup key={label} label={label}>
+                  {visible.map((item) => <option key={item} value={item}>{TAB_LABELS[item]}</option>)}
+                </optgroup>
+              );
+            })}
+          </select>
+        </label>
+      </div>
       {tab === "accounts" && canReadAccounts && !isPlatformConsole && <FinancialControlsPage />}
       {tab === "company" && <CompanyTab />}
       {tab === "invoice" && <InvoiceTemplatesTab />}
