@@ -1,3 +1,4 @@
+import { PageExport } from "./PageExport";
 import { APP_NAME, APP_ICON } from "../../../../packages/browser/src/brand";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -130,6 +131,7 @@ export function Layout() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebar = useRef<HTMLElement>(null);
+  const pageContent = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
   const branding = useQuery(companyBrandingQuery(isPlatformConsole ? undefined : user?.id));
@@ -207,7 +209,8 @@ export function Layout() {
           </div>
         </header>
         <main className="content">
-          <Outlet />
+          {hasPerm("report:export") && <PageExport key={location.pathname} title={currentPage} tenant={branding.data?.name} content={pageContent} />}
+          <div ref={pageContent}><Outlet /></div>
         </main>
       </div>
     </div>

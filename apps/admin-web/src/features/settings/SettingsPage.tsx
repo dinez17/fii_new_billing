@@ -25,6 +25,14 @@ const TAB_LABELS: Record<Tab, string> = {
   terms: "Terms & Conditions", inventory: "Inventory", gateway: "Payment gateway", smtp: "Email (SMTP)", security: "My security",
 };
 
+const SETTINGS_GROUPS: { label: string; tabs: Tab[] }[] = [
+  { label: "Company", tabs: ["company", "nonGst", "license"] },
+  { label: "Billing", tabs: ["invoice", "series", "terms", "gateway"] },
+  { label: "Accounting & inventory", tabs: ["fy", "accounts", "inventory", "legacy"] },
+  { label: "Communications", tabs: ["smtp", "whatsapp"] },
+  { label: "Security", tabs: ["security"] },
+];
+
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>("company");
   const canReadAccounts = useAuth((state) => state.hasPerm("report:read"));
@@ -32,13 +40,28 @@ export function SettingsPage() {
   return (
     <>
       <h2 className="page-title">Settings</h2>
-      <div className="toolbar">
-        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => (t !== "whatsapp" || !isPlatformConsole) && (t !== "accounts" || (!isPlatformConsole && canReadAccounts)) && (t !== "nonGst" || !isPlatformConsole) && (t !== "license" || !isPlatformConsole) && (t !== "legacy" || (!isPlatformConsole && canReadLegacy))).map((t) => (
-          <button key={t} className={tab === t ? "primary" : ""} onClick={() => setTab(t)}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
+      <nav className="settings-menu" aria-label="Settings sections">
+        {SETTINGS_GROUPS.map(({ label, tabs }) => {
+          const visible = tabs.filter((item) => {
+            if (isPlatformConsole && ["whatsapp", "nonGst", "license", "accounts", "legacy"].includes(item)) return false;
+            return (item !== "accounts" || canReadAccounts) && (item !== "legacy" || canReadLegacy);
+          });
+          if (!visible.length) return null;
+          return (
+            <div className="settings-menu-group" key={label}>
+              <h3>{label}</h3>
+              <div className="settings-menu-items">
+                {visible.map((item) => (
+                  <button type="button" key={item} aria-current={tab === item ? "true" : undefined}
+                    className={tab === item ? "primary" : ""} onClick={() => setTab(item)}>
+                    {TAB_LABELS[item]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </nav>
       {tab === "accounts" && canReadAccounts && !isPlatformConsole && <FinancialControlsPage />}
       {tab === "company" && <CompanyTab />}
       {tab === "invoice" && <InvoiceTemplatesTab />}

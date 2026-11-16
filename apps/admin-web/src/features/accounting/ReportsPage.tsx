@@ -133,7 +133,7 @@ export function ReportView({ reportKey }: { reportKey: ReportType }) {
       {table && (
         <>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", margin: "4px 0 12px", color: "var(--muted)" }}>
-            {table.summary.map(([k, v]) => <span key={k}><strong style={{ color: "var(--text)" }}>{v}</strong> {k}</span>)}
+            {table.summary.map(([k, v]) => <span key={k}><strong data-export-metric={k} style={{ color: "var(--text)" }}>{v}</strong> {k}</span>)}
           </div>
           <ListTable>
             <thead><tr>{table.columns.map((c, i) => <th key={c} style={{ textAlign: i === 0 ? "left" : "right" }}>{c}</th>)}</tr></thead>
