@@ -23,6 +23,7 @@ interface StatementResp {
 const inr = (v: unknown) => Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const drcr = (v: number) => `${inr(Math.abs(v))} ${v >= 0 ? "Dr" : "Cr"}`;
 const dmy = (s: string) => formatDate(s);
+const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 function PartyLedgerView({ partyType }: { partyType: PartyType }) {
   const navigate = useNavigate();
@@ -34,6 +35,8 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
   const [partyId, setPartyId] = useState("");
   const period = useFinancialReportPeriod(() => {});
   const { from, to } = period;
+  const [showCustomerNarration, setShowCustomerNarration] = useState(false);
+  const showNarration = !isCustomer || showCustomerNarration;
   const [queued, setQueued] = useState(false);
 
   const params = useMemo(() => ({ ...(from ? { from } : {}), ...(to ? { to } : {}) }), [from, to]);
@@ -47,7 +50,7 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
     mutationFn: async (format: string) => {
       await api.post("/reports/export", {
         reportType, format,
-        filters: { ...(isCustomer ? { customerId: partyId } : { supplierId: partyId }), ...params },
+        filters: { ...(isCustomer ? { customerId: partyId, showNarration } : { supplierId: partyId }), ...params },
       });
     },
     onSuccess: () => { setQueued(true); setTimeout(() => setQueued(false), 6000); },
@@ -59,13 +62,13 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
     if (!d) return;
     const rows = d.entries.map((e) => `
       <tr>
-        <td>${dmy(e.entryDate)}</td><td>${e.entryType}</td><td>${e.refNumber ?? ""}</td>
-        <td>${e.narration ?? ""}</td>
+        <td>${dmy(e.entryDate)}</td><td>${escapeHtml(e.entryType)}</td><td>${escapeHtml(e.refNumber ?? "")}</td>
+        ${showNarration ? `<td>${escapeHtml(e.narration ?? "")}</td>` : ""}
         <td class="r">${Number(e.debit) ? inr(e.debit) : ""}</td>
         <td class="r">${Number(e.credit) ? inr(e.credit) : ""}</td>
         <td class="r">${drcr(e.balance)}</td>
       </tr>`).join("");
-    const html = `<!doctype html><html><head><title>${d.party.name} — Ledger</title><style>
+    const html = `<!doctype html><html><head><title>${escapeHtml(d.party.name)} — Ledger</title><style>
       body { font-family: Arial, sans-serif; font-size: 12px; margin: 24px; }
       h2 { margin: 0 0 2px; } .muted { color: #555; margin-bottom: 12px; }
       table { width: 100%; border-collapse: collapse; }
@@ -74,14 +77,14 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
       .open td, .close td { font-weight: bold; background: #f6f6f6; }
       @media print { button { display: none; } }
     </style></head><body>
-      <h2>${d.party.name} — ${isCustomer ? "Customer" : "Supplier"} Ledger</h2>
-      <div class="muted">${from ? `From ${dmy(from)}` : "From beginning"} ${to ? `to ${dmy(to)}` : ""}${d.party.gstin ? ` · GSTIN: ${d.party.gstin}` : ""}</div>
+      <h2>${escapeHtml(d.party.name)} — ${isCustomer ? "Customer" : "Supplier"} Ledger</h2>
+      <div class="muted">${from ? `From ${dmy(from)}` : "From beginning"} ${to ? `to ${dmy(to)}` : ""}${d.party.gstin ? ` · GSTIN: ${escapeHtml(d.party.gstin)}` : ""}</div>
       <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Narration</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Ref</th>${showNarration ? "<th>Narration</th>" : ""}<th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead>
         <tbody>
-          <tr class="open"><td>${from ? dmy(from) : ""}</td><td></td><td></td><td>Opening Balance</td><td></td><td></td><td class="r">${drcr(d.opening)}</td></tr>
+          <tr class="open"><td>${from ? dmy(from) : ""}</td><td></td><td>Opening Balance</td>${showNarration ? "<td></td>" : ""}<td></td><td></td><td class="r">${drcr(d.opening)}</td></tr>
           ${rows}
-          <tr class="close"><td>${to ? dmy(to) : ""}</td><td></td><td></td><td>Closing Balance</td><td></td><td></td><td class="r">${drcr(d.closing)}</td></tr>
+          <tr class="close"><td>${to ? dmy(to) : ""}</td><td></td><td>Closing Balance</td>${showNarration ? "<td></td>" : ""}<td></td><td></td><td class="r">${drcr(d.closing)}</td></tr>
         </tbody>
       </table>
     </body></html>`;
@@ -104,6 +107,10 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
       <div className="toolbar" style={{ flexWrap: "wrap" }}>
         <div style={{ width: 280 }}><EntitySelect key={partyType} kind={isCustomer ? "customers" : "suppliers"} value={partyId} onChange={setPartyId} /></div>
         <FinancialReportPeriod period={period} />
+        {isCustomer && <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <input type="checkbox" checked={showNarration} onChange={(event) => setShowCustomerNarration(event.target.checked)} />
+          Show narration
+        </label>}
         <div className="spacer" />
         {queued && (
           <span style={{ color: "var(--ok)", fontSize: 13 }}>
@@ -134,7 +141,7 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
           <ListTable>
             <thead>
               <tr>
-                <th>Date</th><th>Type</th><th>Ref</th><th>Narration</th>
+                <th>Date</th><th>Type</th><th>Ref</th>{showNarration && <th>Narration</th>}
                 <th style={{ textAlign: "right" }}>Debit</th>
                 <th style={{ textAlign: "right" }}>Credit</th>
                 <th style={{ textAlign: "right" }}>Balance</th>
@@ -142,7 +149,7 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
             </thead>
             <tbody>
               <tr style={{ fontWeight: 600, background: "var(--panel, #f7f9fb)" }}>
-                <td>{from ? dmy(from) : ""}</td><td /><td /><td>Opening Balance</td><td /><td />
+                <td>{from ? dmy(from) : ""}</td><td /><td>Opening Balance</td>{showNarration && <td />}<td /><td />
                 <td style={{ textAlign: "right" }}>{drcr(d.opening)}</td>
               </tr>
               {d.entries.map((e) => (
@@ -150,17 +157,17 @@ function PartyLedgerView({ partyType }: { partyType: PartyType }) {
                   <td>{dmy(e.entryDate)}</td>
                   <td>{e.entryType}</td>
                   <td><code>{e.refNumber ?? ""}</code></td>
-                  <td>{e.narration ?? ""}</td>
+                  {showNarration && <td>{e.narration ?? ""}</td>}
                   <td style={{ textAlign: "right" }}>{Number(e.debit) ? `₹${inr(e.debit)}` : ""}</td>
                   <td style={{ textAlign: "right" }}>{Number(e.credit) ? `₹${inr(e.credit)}` : ""}</td>
                   <td style={{ textAlign: "right" }}>{drcr(e.balance)}</td>
                 </tr>
               ))}
               {d.entries.length === 0 && (
-                <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No transactions in this period.</td></tr>
+                <tr><td colSpan={showNarration ? 7 : 6} style={{ color: "var(--muted)" }}>No transactions in this period.</td></tr>
               )}
               <tr style={{ fontWeight: 700, background: "var(--panel, #f7f9fb)", borderTop: "2px solid var(--border, #ccc)" }}>
-                <td>{to ? dmy(to) : ""}</td><td /><td /><td>Closing Balance</td>
+                <td>{to ? dmy(to) : ""}</td><td /><td>Closing Balance</td>{showNarration && <td />}
                 <td style={{ textAlign: "right" }}>{totals ? `₹${inr(totals.debit)}` : ""}</td>
                 <td style={{ textAlign: "right" }}>{totals ? `₹${inr(totals.credit)}` : ""}</td>
                 <td style={{ textAlign: "right" }}>{drcr(d.closing)}</td>

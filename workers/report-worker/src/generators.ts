@@ -230,15 +230,16 @@ async function statement(tenantId: string, partyType: "CUSTOMER" | "SUPPLIER", f
     where: { tenantId, partyType, partyId, ...(f.from || f.to ? { entryDate: { ...(f.from ? { gte: start(d(f.from)) } : {}), ...(f.to ? { lte: end(d(f.to)) } : {}) } } : {}) },
     orderBy: { entryDate: "asc" }, take: 5000,
   });
+  const showNarration = partyType === "SUPPLIER" || f.showNarration !== false;
   let bal = opening;
   const out: (string | number)[][] = [
-    [f.from ? day(d(f.from)) : "", "", "Opening Balance", "", "", opening],
-    ...rows.map((r) => { bal = round(bal + num(r.debit) - num(r.credit)); return [day(r.entryDate), r.refNumber ?? "", r.narration ?? "", num(r.debit), num(r.credit), bal] as (string | number)[]; }),
+    [f.from ? day(d(f.from)) : "", "Opening Balance", ...(showNarration ? [""] : []), "", "", opening],
+    ...rows.map((r) => { bal = round(bal + num(r.debit) - num(r.credit)); return [day(r.entryDate), r.refNumber ?? "", ...(showNarration ? [r.narration ?? ""] : []), num(r.debit), num(r.credit), bal] as (string | number)[]; }),
   ];
   const range = f.from || f.to ? ` ${f.from ? day(d(f.from)) : "…"} to ${f.to ? day(d(f.to)) : "…"}` : "";
   return {
     title: `${party?.name ?? partyType} — ${partyType === "CUSTOMER" ? "Customer" : "Supplier"} Ledger${range}`,
-    columns: ["Date", "Ref", "Narration", "Debit", "Credit", "Balance"],
+    columns: ["Date", "Ref", ...(showNarration ? ["Narration"] : []), "Debit", "Credit", "Balance"],
     rows: out,
     summary: [
       ["Opening balance", opening],
