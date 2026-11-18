@@ -75,7 +75,7 @@ export function CustomersPage() {
   const customers = useQuery({
     queryKey: ["customers", page, search, filters, pageSize],
     queryFn: async () => (await api.get("/customers", { params: { page, limit: pageSize, search: search || undefined, ...filters } })).data as
-      { items: CustomerRow[]; total: number; limit: number },
+      { items: CustomerRow[]; total: number; limit: number; totalOutstanding: string },
   });
 
   const save = useMutation({
@@ -144,6 +144,11 @@ export function CustomersPage() {
       </div>
 
 
+      {customers.data && <div className="card" style={{ marginBottom: 16 }} aria-live="polite">
+        <span>Total outstanding</span>{" "}
+        <strong data-export-metric="Total customer outstanding">₹{Number(customers.data.totalOutstanding ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        <span style={{ color: "var(--muted)", marginLeft: 12 }}>{customers.data.total} customers matching filters</span>
+      </div>}
       {customers.isError && <div className="error">{errMessage(customers.error)}</div>}
       <table>
         <thead>

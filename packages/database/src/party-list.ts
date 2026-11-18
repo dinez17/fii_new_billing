@@ -58,7 +58,7 @@ export async function rankParties(tenantId: string, type: "CUSTOMER" | "SUPPLIER
       SELECT id, "invoiceCount", "subscriptionCount", outstanding, "ledgerOutstanding" FROM filtered
       ORDER BY ${Prisma.raw(columns[sortBy])} ${Prisma.raw(direction)}, ${sortBy === "subscriptionCount" ? Prisma.sql`outstanding DESC,` : Prisma.empty} name ASC, id ASC
       LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`,
-    prisma.$queryRaw<Array<{ total: number }>>`${cte} SELECT COUNT(*)::int AS total FROM filtered`,
+    prisma.$queryRaw<Array<{ total: number; totalOutstanding: Prisma.Decimal }>>`${cte} SELECT COUNT(*)::int AS total, COALESCE(SUM(GREATEST(outstanding, 0)), 0) AS "totalOutstanding" FROM filtered`,
   ], { isolationLevel: "RepeatableRead" });
-  return { items, total: counts[0].total };
+  return { items, total: counts[0].total, totalOutstanding: counts[0].totalOutstanding.toFixed(2) };
 }

@@ -53,7 +53,7 @@ export async function listCustomers(
       ledgerOutstanding: rank.ledgerOutstanding.toFixed(2),
       heldInvoiceCount: balancesAccepted ? 0 : heldByParty.get(item.id) ?? 0,
     }] : [];
-  }), total: ranked.total, page: q.page, limit: q.limit };
+  }), total: ranked.total, totalOutstanding: ranked.totalOutstanding, page: q.page, limit: q.limit };
 }
 
 export async function getCustomer(tenantId: string, id: string) {
