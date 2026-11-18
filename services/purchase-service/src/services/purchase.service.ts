@@ -111,7 +111,7 @@ export async function listSuppliers(tenantId: string, q: PartyListQuery) {
   return { items: ranked.items.flatMap((rank) => {
     const item = byId.get(rank.id);
     return item ? [{ ...item, invoiceCount: rank.invoiceCount, currentOutstanding: rank.outstanding.toFixed(2), heldInvoiceCount: heldByCode.get(item.code) ?? 0 }] : [];
-  }), total: ranked.total, page: q.page, limit: q.limit };
+  }), total: ranked.total, totalOutstanding: ranked.totalOutstanding, page: q.page, limit: q.limit };
 }
 
 export async function createSupplier(tenantId: string, input: z.infer<typeof supplierBody>) {

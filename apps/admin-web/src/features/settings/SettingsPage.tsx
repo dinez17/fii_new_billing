@@ -157,6 +157,7 @@ const TERMS_DOCS: Array<[string, string]> = [
   ["INVOICE", "Tax Invoice"],
   ["PROFORMA_INVOICE", "Proforma Invoice"],
   ["QUOTATION", "Quotation"],
+  ["QUOTATION_ALTERNATIVE", "Quotation — alternative plans"],
   ["PURCHASE_ORDER", "Purchase Order"],
   ["RECEIPT", "Payment Receipt"],
   ["CREDIT_NOTE", "Credit Note"],

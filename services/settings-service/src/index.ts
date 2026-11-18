@@ -170,7 +170,7 @@ app.post("/api/v1/financial-years/:id/lock", authenticate, authorize("financial_
 // ── Generic setting groups (gateway / SMTP / SMS / WhatsApp) — secrets encrypted
 const SETTING_GROUPS: Record<string, { keys: string[]; secrets: string[] }> = {
   TERMS: {
-    keys: ["INVOICE", "PROFORMA_INVOICE", "QUOTATION", "PURCHASE_ORDER", "RECEIPT", "CREDIT_NOTE", "DEBIT_NOTE"],
+    keys: ["INVOICE", "PROFORMA_INVOICE", "QUOTATION", "QUOTATION_ALTERNATIVE", "PURCHASE_ORDER", "RECEIPT", "CREDIT_NOTE", "DEBIT_NOTE"],
     secrets: [],
   },
   NON_GST_COMPANY: { keys: ["enabled", ...NON_GST_COMPANY_FIELDS], secrets: [] },

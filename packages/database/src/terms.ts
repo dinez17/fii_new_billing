@@ -7,13 +7,14 @@ import { prisma as defaultClient } from "./client.js";
  */
 export async function termsFor(
   tenantId: string,
-  docType: "INVOICE" | "PROFORMA_INVOICE" | "QUOTATION" | "PURCHASE_ORDER" | "RECEIPT" | "CREDIT_NOTE" | "DEBIT_NOTE",
+  docType: "INVOICE" | "PROFORMA_INVOICE" | "QUOTATION" | "QUOTATION_ALTERNATIVE" | "PURCHASE_ORDER" | "RECEIPT" | "CREDIT_NOTE" | "DEBIT_NOTE",
   client: PrismaClient | Prisma.TransactionClient = defaultClient,
 ): Promise<string | null> {
   const setting = await client.setting.findUnique({
     where: { tenantId_group_key: { tenantId, group: "TERMS", key: docType } },
   });
   if (setting?.value) return setting.value;
+  if (docType === "QUOTATION_ALTERNATIVE") return termsFor(tenantId, "QUOTATION", client);
   if (docType === "INVOICE") {
     const tenant = await client.tenant.findUnique({ where: { id: tenantId }, select: { invoiceTerms: true } });
     return tenant?.invoiceTerms ?? null;

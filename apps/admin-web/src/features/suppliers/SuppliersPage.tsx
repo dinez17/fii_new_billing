@@ -39,7 +39,7 @@ export function SuppliersPage() {
   const suppliers = useQuery({
     queryKey: ["suppliers", page, search, filters, pageSize],
     queryFn: async () => (await api.get("/suppliers", { params: { page, limit: pageSize, search: search || undefined, ...filters } })).data as
-      { items: SupplierRow[]; total: number; limit: number },
+      { items: SupplierRow[]; total: number; limit: number; totalOutstanding: string },
   });
 
   const ledger = useQuery({
@@ -77,6 +77,11 @@ export function SuppliersPage() {
       </div>
 
 
+      {suppliers.data && <div className="card" style={{ marginBottom: 16 }} aria-live="polite">
+        <span>Total outstanding</span>{" "}
+        <strong data-export-metric="Total supplier outstanding">₹{Number(suppliers.data.totalOutstanding ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        <span style={{ color: "var(--muted)", marginLeft: 12 }}>{suppliers.data.total} suppliers matching filters</span>
+      </div>}
       {suppliers.isError && <div className="error">{errMessage(suppliers.error)}</div>}
       <table>
         <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>GSTIN</th><th>Phone</th><th>Invoices</th><th style={{ textAlign: "right" }}>Current payable</th><th /></tr></thead>

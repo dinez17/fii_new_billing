@@ -48,7 +48,7 @@ async function prepared(tx: Prisma.TransactionClient, tenantId: string, input: I
   if(input.alternativePlans)for(const key of ["subTotal","discountTotal","taxableValue","cgst","sgst","igst","roundOff","grandTotal"] as const)totals[key]="0.00";
   return { alternativePlans: input.alternativePlans, fyCode: fy.code, customerId: customer?.id ?? null, prospect: input.prospect ? json(input.prospect) : Prisma.DbNull, documentDate: input.documentDate, validUntil: input.validUntil,
     chargeGst: input.chargeGst, placeOfSupply, isInterState, poNumber: input.poNumber, subject: input.subject,
-    notes: input.notes, terms: input.terms ?? await termsFor(tenantId, input.kind === "QUOTATION" ? "QUOTATION" : "PROFORMA_INVOICE", tx),
+    notes: input.notes, terms: input.terms ?? await termsFor(tenantId, input.kind === "QUOTATION" ? (input.alternativePlans ? "QUOTATION_ALTERNATIVE" : "QUOTATION") : "PROFORMA_INVOICE", tx),
     items: json(input.items), totals: json(totals), grandTotal: new Prisma.Decimal(totals.grandTotal) };
 }
 
