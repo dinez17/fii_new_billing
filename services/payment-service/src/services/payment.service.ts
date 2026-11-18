@@ -117,12 +117,29 @@ export async function listPayments(tenantId: string, q: z.infer<typeof paymentLi
         }
       : {}),
   };
+  const conditions = [Prisma.sql`p."tenantId"=${tenantId}`];
+  if (q.fyCode) conditions.push(Prisma.sql`p."fyCode"=${q.fyCode}`);
+  if (q.status) conditions.push(Prisma.sql`p.status::text=${q.status}`);
+  if (q.customerId) conditions.push(Prisma.sql`p."customerId"=${q.customerId}`);
+  if (q.from) conditions.push(Prisma.sql`p."paymentDate">=(${q.from}::timestamptz AT TIME ZONE 'UTC')`);
+  if (q.to) conditions.push(Prisma.sql`p."paymentDate"<=(${q.to}::timestamptz AT TIME ZONE 'UTC')`);
+  if (q.search) {
+    const search = "%" + q.search.replace(/[\\%_]/g, "\\$&") + "%";
+    conditions.push(Prisma.sql`(p.reference ILIKE ${search} OR c.name ILIKE ${search} OR r."receiptNumber" ILIKE ${search})`);
+  }
+  const ordered = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT p.id FROM "Payment" p
+    JOIN "Customer" c ON c.id=p."customerId" AND c."tenantId"=p."tenantId"
+    LEFT JOIN "Receipt" r ON r."paymentId"=p.id AND r."tenantId"=p."tenantId"
+    WHERE ${Prisma.join(conditions, " AND ")}
+    ORDER BY (r.id IS NOT NULL) DESC, p."fyCode" DESC,
+      COALESCE(substring(r."receiptNumber" FROM '/([0-9]+)(?:~[^/]*)?$')::numeric, 0) DESC,
+      r."receiptNumber" DESC, p."paymentDate" DESC, p.id DESC
+    LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`;
+  const rank = new Map(ordered.map((row, index) => [row.id, index]));
   const [items, total, sums] = await Promise.all([
     prisma.payment.findMany({
-      where,
-      skip: (q.page - 1) * q.limit,
-      take: q.limit,
-      orderBy: { paymentDate: "desc" },
+      where: { ...where, id: { in: ordered.map(row => row.id) } },
       include: {
         customer: { select: { id: true, name: true, phone: true, whatsappInvoiceEnabled: true } },
         receipt: { select: { id: true, receiptNumber: true } },
@@ -132,7 +149,7 @@ export async function listPayments(tenantId: string, q: z.infer<typeof paymentLi
     prisma.payment.count({ where }),
     prisma.payment.aggregate({ where: { AND: [where, { status: "SUCCESS" }] }, _sum: { amount: true } }),
   ]);
-  return { items, total, page: q.page, limit: q.limit, totalCollected: sums._sum.amount ?? 0 };
+  return { items: items.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!), total, page: q.page, limit: q.limit, totalCollected: sums._sum.amount ?? 0 };
 }
 
 export async function getPayment(tenantId: string, id: string) {

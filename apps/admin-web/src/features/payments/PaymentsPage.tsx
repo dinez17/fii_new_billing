@@ -172,9 +172,9 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
 
       </div>
 
-      <table>
+      <table className="payments-table">
         <thead>
-          <tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Money received</th><th>TDS deducted</th><th>Mode</th><th>Against</th><th /></tr>
+          <tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Received</th><th>TDS</th><th>Mode</th><th>Against</th><th /></tr>
         </thead>
         <tbody>
           {list.data?.items.map((p) => (
@@ -183,7 +183,7 @@ export function PaymentsPage({ entryOnly = false }: { entryOnly?: boolean }) {
               <td>{formatDate(p.paymentDate)}</td>
               <td>{p.customer.name}</td>
               <td>{inr(p.amount)}</td><td>{inr(p.tdsAmount ?? 0)}</td>
-              <td><span className="badge">{p.mode}</span>{p.reference && <span style={{ color: "var(--muted)", marginLeft: 6, fontSize: 12 }}>{p.reference}</span>}</td>
+              <td><span className="badge">{p.mode}</span>{p.reference && <span style={{ color: "var(--muted)", display: "block", fontSize: 11 }}>{p.reference}</span>}</td>
               <td style={{ fontSize: 12 }}>{p.allocations.map((a) => a.invoice.invoiceNumber).join(", ")}</td>
               <td><span className={`badge ${p.status === "SUCCESS" ? "ok" : "warn"}`}>{p.status === "REFUNDED" ? "Reversed / refunded" : p.status}</span>{p.receipt && <IconButton className="small" onClick={() => void downloadReceipt(p)} icon="download" label="Receipt PDF">Receipt PDF</IconButton>}{p.receipt && p.status==="SUCCESS" && hasPerm("receipt:read") && <><IconButton className="small" icon="mail" label="Email receipt" disabled={sendingReceipt===p.id} onClick={()=>void sendReceipt(p,"email")}/>{p.customer.whatsappInvoiceEnabled && <IconButton className="small" icon="whatsapp" label="Send receipt on WhatsApp" disabled={sendingReceipt===p.id} onClick={()=>void sendReceipt(p,"whatsapp")}/>}</>}{p.status === "SUCCESS" && hasPerm("payment:update") && <button className="small" onClick={() => { setReversing(p); setReverseReason(""); reverse.reset(); }}>Reverse</button>}</td>
             </tr>

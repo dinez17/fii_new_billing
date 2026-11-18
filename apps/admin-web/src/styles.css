@@ -277,3 +277,9 @@ td code { white-space: nowrap; }
 .page-export { display:flex; flex-wrap:wrap; gap:8px; }
 .page-export { justify-content:flex-end; margin-bottom:12px; }
 .page-export [role="alert"] { flex-basis:100%; text-align:right; color:var(--danger); }
+
+.payments-table th,.payments-table td { padding:7px 9px; font-size:12px; }
+.payments-table td:first-child,.payments-table td:nth-child(2) { white-space:nowrap; }
+.payments-table td:last-child { min-width:190px; }
+.payments-table td:last-child .badge { display:block; width:fit-content; margin-bottom:4px; }
+.payments-table .small { padding:4px 6px; }
