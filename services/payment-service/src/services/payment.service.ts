@@ -132,9 +132,7 @@ export async function listPayments(tenantId: string, q: z.infer<typeof paymentLi
     JOIN "Customer" c ON c.id=p."customerId" AND c."tenantId"=p."tenantId"
     LEFT JOIN "Receipt" r ON r."paymentId"=p.id AND r."tenantId"=p."tenantId"
     WHERE ${Prisma.join(conditions, " AND ")}
-    ORDER BY (r.id IS NOT NULL) DESC, p."fyCode" DESC,
-      COALESCE(substring(r."receiptNumber" FROM '/([0-9]+)(?:~[^/]*)?$')::numeric, 0) DESC,
-      r."receiptNumber" DESC, p."paymentDate" DESC, p.id DESC
+    ORDER BY p."createdAt" DESC, p.id DESC
     LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`;
   const rank = new Map(ordered.map((row, index) => [row.id, index]));
   const [items, total, sums] = await Promise.all([
